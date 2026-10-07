@@ -15,20 +15,9 @@ import ru.nexus.repository.*;
 @Transactional
 public class NexusService {
 
-  public static final List<String> INTERESTS = List.of(
-    "Музыка",
-    "Кино",
-    "Путешествия",
-    "Книги",
-    "Технологии",
-    "Спорт",
-    "Искусство",
-    "Кофе",
-    "Природа",
-    "Игры",
-    "Кулинария",
-    "Фотография"
-  );
+  private final InterestRepository catalogue;
+  private final UserInterestRepository selections;
+  private final PreferenceRepository preferenceStore;
   private final UserAccountRepository users;
   private final ProfilePropertyRepository properties;
   private final ReactionRepository reactions;
@@ -46,8 +35,14 @@ public class NexusService {
     ChatMessageRepository c,
     NoticeRepository n,
     SessionTokenRepository s,
-    BCryptPasswordEncoder e
+    BCryptPasswordEncoder e,
+    InterestRepository catalogue,
+    UserInterestRepository selections,
+    PreferenceRepository preferenceStore
   ) {
+    this.catalogue = catalogue;
+    this.selections = selections;
+    this.preferenceStore = preferenceStore;
     users = u;
     properties = p;
     reactions = r;
@@ -77,6 +72,9 @@ public class NexusService {
       u.email = email;
       u.passwordHash = encoder.encode(c.password());
       users.saveAndFlush(u);
+      Preference preference = new Preference();
+      preference.user = u;
+      preferenceStore.save(preference);
     } else {
       u = users
         .findByEmail(email)
@@ -143,8 +141,33 @@ public class NexusService {
       .orElseThrow(() -> fail(404, "Пользователь не найден"));
   }
 
+  public List<String> interestCatalogue() {
+    return catalogue
+      .findAllByOrderByIdAsc()
+      .stream()
+      .map(i -> i.name)
+      .toList();
+  }
+
+  private Set<String> interestNames(Long id) {
+    return selections
+      .findByUserId(id)
+      .stream()
+      .map(x -> x.interest.name)
+      .collect(java.util.stream.Collectors.toCollection(TreeSet::new));
+  }
+
+  private Preference preferenceFor(UserAccount u) {
+    return preferenceStore.findByUserId(u.id).orElseGet(() -> {
+      Preference p = new Preference();
+      p.user = u;
+      return preferenceStore.save(p);
+    });
+  }
+
   public Map<String, Object> me(Long id) {
     UserAccount u = user(id);
+    Preference pref = preferenceFor(u);
     return Map.of(
       "id",
       id,
@@ -153,7 +176,7 @@ public class NexusService {
       "profile",
       profile(id, true),
       "preferences",
-      Map.of("minAge", u.minAge, "maxAge", u.maxAge)
+      Map.of("minAge", pref.minAge, "maxAge", pref.maxAge)
     );
   }
 
@@ -162,7 +185,7 @@ public class NexusService {
     var all = properties.findByUserId(id);
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("userId", id);
-    out.put("interests", u.interests);
+    out.put("interests", interestNames(id));
     out.put(
       "properties",
       all
@@ -202,7 +225,7 @@ public class NexusService {
     } catch (Exception e) {
       throw fail(400, "Возраст должен быть от 18 до 100 лет");
     }
-    if (!INTERESTS.containsAll(input.interests())) throw fail(
+    if (!interestCatalogue().containsAll(input.interests())) throw fail(
       400,
       "Неизвестный интерес"
     );
@@ -220,8 +243,23 @@ public class NexusService {
       properties.save(row);
     }
     UserAccount u = user(id);
-    u.interests = new HashSet<>(input.interests());
-    users.save(u);
+    var existing = selections.findByUserId(id);
+    selections.deleteAll(
+      existing
+        .stream()
+        .filter(x -> !input.interests().contains(x.interest.name))
+        .toList()
+    );
+    Set<String> retained = new HashSet<>();
+    existing.forEach(x -> retained.add(x.interest.name));
+    for (Interest interest : catalogue.findByNameIn(input.interests())) {
+      if (!retained.contains(interest.name)) {
+        UserInterest link = new UserInterest();
+        link.user = u;
+        link.interest = interest;
+        selections.save(link);
+      }
+    }
     return profile(id, true);
   }
 
@@ -231,26 +269,33 @@ public class NexusService {
       "Минимальный возраст больше максимального"
     );
     UserAccount u = user(id);
-    u.minAge = p.minAge();
-    u.maxAge = p.maxAge();
-    return Map.of("minAge", u.minAge, "maxAge", u.maxAge);
+    Preference pref = preferenceFor(u);
+    pref.minAge = p.minAge();
+    pref.maxAge = p.maxAge();
+    preferenceStore.save(pref);
+    return Map.of("minAge", pref.minAge, "maxAge", pref.maxAge);
   }
 
-  private boolean complete(Long id) {
+  public boolean profileComplete(Long id) {
     return (
-      properties.findByUserId(id).size() == 4 && !user(id).interests.isEmpty()
+      properties.findByUserId(id).size() == 4 && selections.existsByUserId(id)
     );
   }
 
   public List<Map<String, Object>> recommend(Long id, int limit) {
     UserAccount me = user(id);
-    if (!complete(id)) throw fail(409, "Сначала заполните профиль и интересы");
+    Preference pref = preferenceFor(me);
+    Set<String> ownInterests = interestNames(id);
+    if (!profileComplete(id)) throw fail(
+      409,
+      "Сначала заполните профиль и интересы"
+    );
     var excluded = new HashSet<Long>();
     excluded.add(id);
     reactions.findByActorId(id).forEach(r -> excluded.add(r.targetId));
     List<Map<String, Object>> result = new ArrayList<>();
     for (UserAccount u : users.findAll()) {
-      if (excluded.contains(u.id) || !complete(u.id)) continue;
+      if (excluded.contains(u.id) || !profileComplete(u.id)) continue;
       String birth = properties
         .findByUserId(u.id)
         .stream()
@@ -262,11 +307,12 @@ public class NexusService {
         LocalDate.parse(birth),
         LocalDate.now()
       ).getYears();
-      if (age < me.minAge || age > me.maxAge) continue;
-      Set<String> common = new TreeSet<>(me.interests);
-      common.retainAll(u.interests);
-      Set<String> union = new HashSet<>(me.interests);
-      union.addAll(u.interests);
+      if (age < pref.minAge || age > pref.maxAge) continue;
+      Set<String> theirs = interestNames(u.id);
+      Set<String> common = new TreeSet<>(ownInterests);
+      common.retainAll(theirs);
+      Set<String> union = new HashSet<>(ownInterests);
+      union.addAll(theirs);
       var p = profile(u.id, false);
       p.put("commonInterests", common);
       p.put(
@@ -297,7 +343,7 @@ public class NexusService {
     users
       .lockById(Math.max(actor, target))
       .orElseThrow(() -> fail(404, "Пользователь не найден"));
-    if (!complete(actor) || !complete(target)) throw fail(
+    if (!profileComplete(actor) || !profileComplete(target)) throw fail(
       409,
       "Профиль не заполнен"
     );

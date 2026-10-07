@@ -77,7 +77,7 @@ public class ApiController {
     @RequestHeader(value = "Authorization", required = false) String h
   ) {
     s.identify(h);
-    return Map.of("items", NexusService.INTERESTS);
+    return Map.of("items", s.interestCatalogue());
   }
 
   @GetMapping("/preferences/me")

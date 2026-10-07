@@ -15,10 +15,4 @@ public class UserAccount {
 
   @Column(nullable = false)
   public String passwordHash;
-
-  public int minAge = 18;
-  public int maxAge = 60;
-
-  @ElementCollection(fetch = FetchType.EAGER)
-  public java.util.Set<String> interests = new java.util.HashSet<>();
 }

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @EnabledIfEnvironmentVariable(named = "TEST_POSTGRES_URL", matches = ".+")
+@org.springframework.test.context.ActiveProfiles("postgres")
 @SpringBootTest(
   properties = {
     "spring.datasource.url=${TEST_POSTGRES_URL}",

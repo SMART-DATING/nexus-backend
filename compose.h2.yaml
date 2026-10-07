@@ -1,0 +1,12 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      NEXUS_DEMO: "true"
+    volumes:
+      - nexus-h2:/app/data
+volumes:
+  nexus-h2:
