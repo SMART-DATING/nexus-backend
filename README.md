@@ -104,5 +104,7 @@ API имеет префикс `/api/v1`. `POST /auth/register` и `/auth/login` 
 - `Connection refused` от PostgreSQL: проверьте `docker compose ps`, профиль postgres и имя хоста (`postgres` внутри Compose).
 - `Cannot find symbol Interests`: используйте рабочую ветку целиком, а не отдельные скопированные файлы.
 - Демо не видно: запуск должен содержать `--nexus.demo=true`, либо NEXUS_DEMO=true.
+- `null value in column category of relation interests`: обновите рабочую ветку и пересоберите backend. Модель сохраняет обязательную категорию из старой базы, новые интересы получают «Общее». Существующие категории и данные сохраняются; удалять Docker volume не требуется.
 
 Версия предназначена для локальной демонстрации: загрузка фото, ML, модерация и восстановление пароля ещё не реализованы.
+
