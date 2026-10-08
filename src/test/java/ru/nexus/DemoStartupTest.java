@@ -51,7 +51,7 @@ class DemoStartupTest {
   @Test
   void allFourteenDemoProfilesStartAndReseedingPreservesEditedProfiles() {
     assertEquals(14, users.count());
-    assertEquals(12, interests.count());
+    assertEquals(Interests.ALL.size(), interests.count());
     assertEquals(14, preferences.count());
     assertTrue(entityManagerFactory.getMetamodel().getEntities().size() >= 10);
     for (var user : users.findAll()) {
@@ -79,7 +79,7 @@ class DemoStartupTest {
     demo.run();
     catalogue.run();
     assertEquals(14, users.count());
-    assertEquals(12, interests.count());
+    assertEquals(Interests.ALL.size(), interests.count());
     assertEquals(
       13,
       service
