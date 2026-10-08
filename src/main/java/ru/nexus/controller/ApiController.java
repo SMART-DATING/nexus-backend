@@ -100,7 +100,20 @@ public class ApiController {
     @RequestHeader(value = "Authorization", required = false) String h,
     @RequestParam(defaultValue = "20") int limit
   ) {
-    return Map.of("items", s.recommend(s.identify(h), limit));
+    Long me = s.identify(h);
+    return Map.of(
+      "items",
+      s.recommend(me, limit),
+      "skippedCount",
+      s.skippedCount(me)
+    );
+  }
+
+  @PostMapping("/recommendations/restart")
+  public Object restartRecommendations(
+    @RequestHeader(value = "Authorization", required = false) String h
+  ) {
+    return s.restartRecommendations(s.identify(h));
   }
 
   @PostMapping("/users/{id}/like")

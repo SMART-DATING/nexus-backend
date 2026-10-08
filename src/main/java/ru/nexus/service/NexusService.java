@@ -185,6 +185,10 @@ public class NexusService {
     var all = properties.findByUserId(id);
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("userId", id);
+    if (u.avatarKey != null) out.put(
+      "avatarUrl",
+      "/avatars/" + u.avatarKey + ".svg"
+    );
     out.put("interests", interestNames(id));
     out.put(
       "properties",
@@ -377,6 +381,19 @@ public class NexusService {
     out.put("matched", matchId != null);
     out.put("matchId", matchId);
     return out;
+  }
+
+  public long skippedCount(Long actor) {
+    user(actor);
+    return reactions.countByActorIdAndLikedFalse(actor);
+  }
+
+  public Map<String, Integer> restartRecommendations(Long actor) {
+    // Reactions acquire the same user lock, so a concurrent choice cannot be lost.
+    users
+      .lockById(actor)
+      .orElseThrow(() -> fail(404, "Пользователь не найден"));
+    return Map.of("restored", reactions.deleteSkippedByActorId(actor));
   }
 
   private void notify(Long id, Long matchId, String text) {

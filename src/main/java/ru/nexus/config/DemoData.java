@@ -23,7 +23,22 @@ public class DemoData implements CommandLineRunner {
 
   @org.springframework.transaction.annotation.Transactional
   public void run(String... args) {
-    String[] names = { "Алекс", "Саша", "Маша", "Даня", "Аня", "Никита" };
+    String[] names = {
+      "Алекс",
+      "Саша",
+      "Маша",
+      "Даня",
+      "Аня",
+      "Никита",
+      "Лера",
+      "Марк",
+      "Соня",
+      "Тимур",
+      "Алиса",
+      "Артём",
+      "Ева",
+      "Илья",
+    };
     String[] bios = {
       "Люблю живые концерты, хороший кофе и разговоры обо всём.",
       "Ищу компанию для походов и маленьких путешествий. Играю на гитаре.",
@@ -31,6 +46,46 @@ public class DemoData implements CommandLineRunner {
       "Днём пишу код, вечером обсуждаю кино. Пойдём на фестиваль?",
       "Музеи, книги и длинные прогулки. Замечаю красоту в мелочах.",
       "За настолки, новые рецепты и спонтанные планы.",
+      "Снимаю город на плёнку, ищу лучшие булочки и закаты. Покажешь своё любимое место?",
+      "Бегаю по набережной и варю кофе по воскресеньям. В плейлисте — инди и немного джаза.",
+      "Могу часами говорить о книгах и выставках. Мечтаю увидеть северное сияние.",
+      "Разрабатываю игры, а по выходным выбираюсь на скалодром. Научу играть в любимую настолку.",
+      "Пеку хлеб, хожу в походы и собираю уютные кафе. Люблю планы, которые начинаются с «а давай».",
+      "Играю на барабанах и охочусь за редким винилом. Вместе проще решиться на первый урок танцев.",
+      "Рисую иллюстрации, фотографирую детали и не пропускаю маленькие кинофестивали.",
+      "Путешествую налегке, катаюсь на велосипеде и готовлю пасту для друзей. Ищу напарника для открытий.",
+    };
+    List<Set<String>> interests = List.of(
+      Set.of("Музыка", "Путешествия", "Кофе"),
+      Set.of("Музыка", "Книги", "Кофе"),
+      Set.of("Музыка", "Технологии", "Кофе"),
+      Set.of("Музыка", "Спорт", "Кофе"),
+      Set.of("Музыка", "Искусство", "Кофе"),
+      Set.of("Музыка", "Кофе", "Игры", "Кулинария"),
+      Set.of("Фотография", "Путешествия", "Кофе"),
+      Set.of("Спорт", "Музыка", "Кофе"),
+      Set.of("Книги", "Искусство", "Путешествия"),
+      Set.of("Технологии", "Игры", "Спорт"),
+      Set.of("Кулинария", "Природа", "Кофе"),
+      Set.of("Музыка", "Искусство", "Игры"),
+      Set.of("Искусство", "Фотография", "Кино"),
+      Set.of("Путешествия", "Спорт", "Кулинария")
+    );
+    int[] birthYears = {
+      2000,
+      2001,
+      2002,
+      2003,
+      2004,
+      2005,
+      2001,
+      1999,
+      2002,
+      2000,
+      1998,
+      2001,
+      2003,
+      1997,
     };
     for (int i = 0; i < names.length; i++) {
       String email = "demo" + (i == 0 ? "" : i) + "@nexus.local";
@@ -38,7 +93,12 @@ public class DemoData implements CommandLineRunner {
         new Credentials(email, "NexusDemo2026!"),
         true
       );
-      Long id = users.findByEmail(email).orElseThrow().id;
+      var user = users.findByEmail(email).orElseThrow();
+      if (user.avatarKey == null) {
+        user.avatarKey = "demo-" + String.format(Locale.ROOT, "%02d", i + 1);
+        users.save(user);
+      }
+      Long id = user.id;
       // Repair accounts left incomplete by an interrupted/older demo initialization.
       if (s.profileComplete(id)) continue;
       s.saveProfile(
@@ -47,12 +107,10 @@ public class DemoData implements CommandLineRunner {
           List.of(
             new Property("display_name", names[i], true),
             new Property("bio", bios[i], true),
-            new Property("birth_date", 2000 + i + "-04-12", false),
+            new Property("birth_date", birthYears[i] + "-04-12", false),
             new Property("city", "Москва", true)
           ),
-          new LinkedHashSet<>(
-            List.of("Музыка", ru.nexus.Interests.ALL.get(i + 2), "Кофе")
-          )
+          interests.get(i)
         )
       );
     }

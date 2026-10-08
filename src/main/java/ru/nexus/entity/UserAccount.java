@@ -15,4 +15,7 @@ public class UserAccount {
 
   @Column(nullable = false)
   public String passwordHash;
+
+  @Column(length = 40)
+  public String avatarKey;
 }

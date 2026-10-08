@@ -262,6 +262,87 @@ class ApiIntegrationTest {
   }
 
   @Test
+  void restartingRecommendationsRestoresOnlyOwnSkipsAndPreservesConversations()
+    throws Exception {
+    Account a = register("restart-a"),
+      b = register("restart-b"),
+      skipped = register("restart-skipped"),
+      outsider = register("restart-outsider");
+    fill(a, "Alex");
+    fill(b, "Sam");
+    fill(skipped, "Taylor");
+    fill(outsider, "Other");
+    call("POST", "/users/" + b.id + "/like", a.token, null, 200);
+    long mid = call("POST", "/users/" + a.id + "/like", b.token, null, 200)
+      .path("matchId")
+      .asLong();
+    call(
+      "POST",
+      "/matches/" + mid + "/messages",
+      a.token,
+      Map.of("text", "Сохрани эту переписку"),
+      201
+    );
+    call("POST", "/users/" + skipped.id + "/skip", a.token, null, 200);
+    call("POST", "/users/" + skipped.id + "/skip", outsider.token, null, 200);
+    assertEquals(
+      1,
+      call("GET", "/recommendations", a.token, null, 200)
+        .path("skippedCount")
+        .asInt()
+    );
+    call("POST", "/recommendations/restart", null, null, 401);
+    assertEquals(
+      1,
+      call("POST", "/recommendations/restart", a.token, null, 200)
+        .path("restored")
+        .asInt()
+    );
+
+    var recommendations = call(
+      "GET",
+      "/recommendations?limit=50",
+      a.token,
+      null,
+      200
+    );
+    assertEquals(0, recommendations.path("skippedCount").asInt());
+    var recommendedIds = new HashSet<Long>();
+    recommendations
+      .path("items")
+      .forEach(p -> recommendedIds.add(p.path("userId").asLong()));
+    assertTrue(recommendedIds.contains(skipped.id));
+    assertFalse(recommendedIds.contains(b.id));
+    assertEquals(
+      1,
+      call("GET", "/recommendations", outsider.token, null, 200)
+        .path("skippedCount")
+        .asInt()
+    );
+    call("POST", "/users/" + skipped.id + "/skip", outsider.token, null, 409);
+    call("POST", "/users/" + b.id + "/like", a.token, null, 409);
+    assertEquals(
+      1,
+      call("GET", "/matches", a.token, null, 200).path("items").size()
+    );
+    assertEquals(
+      "Сохрани эту переписку",
+      call("GET", "/matches/" + mid + "/messages", b.token, null, 200)
+        .path("items")
+        .get(0)
+        .path("text")
+        .asText()
+    );
+    assertEquals(
+      0,
+      call("POST", "/recommendations/restart", a.token, null, 200)
+        .path("restored")
+        .asInt()
+    );
+    call("POST", "/users/" + skipped.id + "/like", a.token, null, 200);
+  }
+
+  @Test
   void concurrentReciprocalLikesCreateOneMatch() throws Exception {
     Account a = register("concurrent-a"),
       b = register("concurrent-b");
