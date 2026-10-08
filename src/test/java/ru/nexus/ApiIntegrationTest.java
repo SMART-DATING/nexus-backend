@@ -367,4 +367,192 @@ class ApiIntegrationTest {
       call("GET", "/matches", a.token, null, 200).path("items").size()
     );
   }
+
+  @Test
+  void circularFeedFinishesUnseenBeforeRepeatingSkipsAndPreservesLikes()
+    throws Exception {
+    Account a = register("circle-a"),
+      b = register("circle-b"),
+      c = register("circle-c"),
+      d = register("circle-d");
+    fill(a, "Circle A");
+    fill(b, "Circle B");
+    fill(c, "Circle C");
+    fill(d, "Circle D");
+    call("POST", "/recommendations/next", null, null, 401);
+    call("POST", "/users/" + b.id + "/like", a.token, null, 200);
+    long mid = call("POST", "/users/" + a.id + "/like", b.token, null, 200)
+      .path("matchId")
+      .asLong();
+    call(
+      "POST",
+      "/matches/" + mid + "/messages",
+      a.token,
+      Map.of("text", "Круг не удаляет чат"),
+      201
+    );
+    for (var p : call(
+      "GET",
+      "/recommendations?limit=50",
+      a.token,
+      null,
+      200
+    ).path("items"))
+      if (p.path("userId").asLong() != d.id) call(
+        "POST",
+        "/users/" + p.path("userId").asLong() + "/skip",
+        a.token,
+        null,
+        200
+      );
+    var unseen = call(
+      "POST",
+      "/recommendations/next?limit=50",
+      a.token,
+      null,
+      200
+    );
+    assertFalse(unseen.path("cycleRestarted").asBoolean());
+    assertEquals(1, unseen.path("items").size());
+    assertEquals(d.id, unseen.path("items").get(0).path("userId").asLong());
+    call("POST", "/users/" + d.id + "/skip", a.token, null, 200);
+    var repeated = call(
+      "POST",
+      "/recommendations/next?limit=50",
+      a.token,
+      null,
+      200
+    );
+    assertTrue(repeated.path("cycleRestarted").asBoolean());
+    var ids = new HashSet<Long>();
+    repeated.path("items").forEach(p -> ids.add(p.path("userId").asLong()));
+    assertTrue(ids.containsAll(Set.of(c.id, d.id)));
+    assertFalse(ids.contains(b.id));
+    assertFalse(ids.contains(a.id));
+    assertEquals(
+      "Круг не удаляет чат",
+      call("GET", "/matches/" + mid + "/messages", b.token, null, 200)
+        .path("items")
+        .get(0)
+        .path("text")
+        .asText()
+    );
+    call("POST", "/users/" + c.id + "/skip", a.token, null, 200);
+    call(
+      "PUT",
+      "/preferences/me",
+      a.token,
+      Map.of("minAge", 100, "maxAge", 100),
+      200
+    );
+    var outside = call("POST", "/recommendations/next", a.token, null, 200);
+    assertTrue(outside.path("items").isEmpty());
+    assertFalse(outside.path("cycleRestarted").asBoolean());
+    assertEquals(1, outside.path("skippedCount").asInt());
+  }
+
+  @Test
+  void avatarUploadIsBoundedDecodedPersistedAndOwnedByCurrentUser()
+    throws Exception {
+    Account a = register("photo-a"),
+      b = register("photo-b");
+    fill(a, "Photo A");
+    fill(b, "Photo B");
+    var source = new java.awt.image.BufferedImage(
+      1500,
+      800,
+      java.awt.image.BufferedImage.TYPE_INT_RGB
+    );
+    var bytes = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(source, "png", bytes);
+    var file = new org.springframework.mock.web.MockMultipartFile(
+      "file",
+      "../../portrait.png",
+      "image/png",
+      bytes.toByteArray()
+    );
+    mvc
+      .perform(multipart("/api/v1/profiles/me/avatar").file(file))
+      .andExpect(status().isUnauthorized());
+    var uploaded = mvc
+      .perform(
+        multipart("/api/v1/profiles/me/avatar")
+          .file(file)
+          .header("Authorization", "Bearer " + a.token)
+      )
+      .andExpect(status().isOk())
+      .andReturn()
+      .getResponse()
+      .getContentAsString();
+    String url = json.readTree(uploaded).path("avatarUrl").asText();
+    assertTrue(url.startsWith("/api/v1/avatars/" + a.id + "?v="));
+    assertEquals(
+      url,
+      call("GET", "/profiles/me", a.token, null, 200).path("avatarUrl").asText()
+    );
+    assertFalse(
+      call("GET", "/profiles/me", b.token, null, 200).has("avatarUrl")
+    );
+    var downloaded = mvc
+      .perform(get(url))
+      .andExpect(status().isOk())
+      .andExpect(content().contentType("image/jpeg"))
+      .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+      .andReturn()
+      .getResponse()
+      .getContentAsByteArray();
+    var image = javax.imageio.ImageIO.read(
+      new java.io.ByteArrayInputStream(downloaded)
+    );
+    assertEquals(1200, image.getWidth());
+    assertEquals(640, image.getHeight());
+    var invalid = new org.springframework.mock.web.MockMultipartFile(
+      "file",
+      "fake.jpg",
+      "image/jpeg",
+      "<svg onload='alert(1)'/>".getBytes()
+    );
+    mvc
+      .perform(
+        multipart("/api/v1/profiles/me/avatar")
+          .file(invalid)
+          .header("Authorization", "Bearer " + a.token)
+      )
+      .andExpect(status().isBadRequest());
+    var oversized = new org.springframework.mock.web.MockMultipartFile(
+      "file",
+      "large.png",
+      "image/png",
+      new byte[5 * 1024 * 1024 + 1]
+    );
+    mvc
+      .perform(
+        multipart("/api/v1/profiles/me/avatar")
+          .file(oversized)
+          .header("Authorization", "Bearer " + a.token)
+      )
+      .andExpect(status().isPayloadTooLarge());
+    assertEquals(
+      url,
+      call("GET", "/profiles/me", a.token, null, 200).path("avatarUrl").asText()
+    );
+    mvc
+      .perform(
+        multipart("/api/v1/profiles/me/avatar")
+          .file(file)
+          .header("Authorization", "Bearer " + a.token)
+      )
+      .andExpect(status().isOk());
+    assertNotEquals(
+      url,
+      call("GET", "/profiles/me", a.token, null, 200).path("avatarUrl").asText()
+    );
+    call("DELETE", "/profiles/me/avatar", b.token, null, 200);
+    mvc.perform(get("/api/v1/avatars/" + a.id)).andExpect(status().isOk());
+    call("DELETE", "/profiles/me/avatar", a.token, null, 200);
+    mvc
+      .perform(get("/api/v1/avatars/" + a.id))
+      .andExpect(status().isNotFound());
+    call("GET", "/users/me", null, null, 401);
+  }
 }

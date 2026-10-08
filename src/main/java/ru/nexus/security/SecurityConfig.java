@@ -36,6 +36,10 @@ public class SecurityConfig {
             String path = request.getRequestURI();
             if (
               path.startsWith("/api/v1/") &&
+              !(
+                request.getMethod().equals("GET") &&
+                path.matches("/api/v1/avatars/[0-9]+")
+              ) &&
               !java.util.Set.of(
                 "/api/v1/health",
                 "/api/v1/auth/register",
@@ -73,6 +77,11 @@ public class SecurityConfig {
             "/api/v1/health",
             "/api/v1/auth/register",
             "/api/v1/auth/login"
+          )
+          .permitAll()
+          .requestMatchers(
+            org.springframework.http.HttpMethod.GET,
+            "/api/v1/avatars/*"
           )
           .permitAll()
           .requestMatchers("/api/**")

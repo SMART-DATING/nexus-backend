@@ -72,6 +72,39 @@ public class ApiController {
     return s.profile(id, me.equals(id));
   }
 
+  @PostMapping(value = "/profiles/me/avatar", consumes = "multipart/form-data")
+  public Object uploadAvatar(
+    @RequestHeader(value = "Authorization", required = false) String h,
+    @RequestParam("file") org.springframework.web.multipart.MultipartFile file
+  ) {
+    return s.uploadAvatar(s.identify(h), file);
+  }
+
+  @DeleteMapping("/profiles/me/avatar")
+  public Object removeAvatar(
+    @RequestHeader(value = "Authorization", required = false) String h
+  ) {
+    return s.removeAvatar(s.identify(h));
+  }
+
+  @GetMapping(value = "/avatars/{id}", produces = "image/jpeg")
+  public org.springframework.http.ResponseEntity<byte[]> avatar(
+    @PathVariable Long id
+  ) {
+    return org.springframework.http.ResponseEntity.ok()
+      .header("Cache-Control", "no-cache")
+      .header("X-Content-Type-Options", "nosniff")
+      .body(s.avatar(id));
+  }
+
+  @ExceptionHandler(
+    org.springframework.web.multipart.MaxUploadSizeExceededException.class
+  )
+  @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
+  public Object oversizedAvatar() {
+    return Map.of("message", "Фото должно быть не больше 5 МБ");
+  }
+
   @GetMapping("/interests")
   public Object interests(
     @RequestHeader(value = "Authorization", required = false) String h
@@ -114,6 +147,14 @@ public class ApiController {
     @RequestHeader(value = "Authorization", required = false) String h
   ) {
     return s.restartRecommendations(s.identify(h));
+  }
+
+  @PostMapping("/recommendations/next")
+  public Object nextRecommendations(
+    @RequestHeader(value = "Authorization", required = false) String h,
+    @RequestParam(defaultValue = "20") int limit
+  ) {
+    return s.nextRecommendations(s.identify(h), limit);
   }
 
   @PostMapping("/users/{id}/like")

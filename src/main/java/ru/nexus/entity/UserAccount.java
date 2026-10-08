@@ -18,4 +18,10 @@ public class UserAccount {
 
   @Column(length = 40)
   public String avatarKey;
+
+  @Column(columnDefinition = "bytea")
+  public byte[] avatarImage;
+
+  @Column(length = 36)
+  public String avatarVersion;
 }

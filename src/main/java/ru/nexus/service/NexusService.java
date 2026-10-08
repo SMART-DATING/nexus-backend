@@ -185,7 +185,11 @@ public class NexusService {
     var all = properties.findByUserId(id);
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("userId", id);
-    if (u.avatarKey != null) out.put(
+    if (u.avatarImage != null) out.put(
+      "avatarUrl",
+      "/api/v1/avatars/" + id + "?v=" + u.avatarVersion
+    );
+    else if (u.avatarKey != null) out.put(
       "avatarUrl",
       "/avatars/" + u.avatarKey + ".svg"
     );
@@ -287,6 +291,14 @@ public class NexusService {
   }
 
   public List<Map<String, Object>> recommend(Long id, int limit) {
+    return recommend(id, limit, false);
+  }
+
+  private List<Map<String, Object>> recommend(
+    Long id,
+    int limit,
+    boolean includeSkipped
+  ) {
     UserAccount me = user(id);
     Preference pref = preferenceFor(me);
     Set<String> ownInterests = interestNames(id);
@@ -296,7 +308,11 @@ public class NexusService {
     );
     var excluded = new HashSet<Long>();
     excluded.add(id);
-    reactions.findByActorId(id).forEach(r -> excluded.add(r.targetId));
+    reactions
+      .findByActorId(id)
+      .stream()
+      .filter(r -> r.liked || !includeSkipped)
+      .forEach(r -> excluded.add(r.targetId));
     List<Map<String, Object>> result = new ArrayList<>();
     for (UserAccount u : users.findAll()) {
       if (excluded.contains(u.id) || !profileComplete(u.id)) continue;
@@ -386,6 +402,57 @@ public class NexusService {
   public long skippedCount(Long actor) {
     user(actor);
     return reactions.countByActorIdAndLikedFalse(actor);
+  }
+
+  public Map<String, Object> nextRecommendations(Long actor, int limit) {
+    users
+      .lockById(actor)
+      .orElseThrow(() -> fail(404, "Пользователь не найден"));
+    var items = recommend(actor, limit);
+    boolean restarted = false;
+    if (items.isEmpty() && !recommend(actor, 1, true).isEmpty()) {
+      reactions.deleteSkippedByActorId(actor);
+      items = recommend(actor, limit);
+      restarted = true;
+    }
+    return Map.of(
+      "items",
+      items,
+      "skippedCount",
+      skippedCount(actor),
+      "cycleRestarted",
+      restarted
+    );
+  }
+
+  public Map<String, Object> uploadAvatar(
+    Long id,
+    org.springframework.web.multipart.MultipartFile file
+  ) {
+    byte[] image = AvatarImages.normalize(file);
+    var u = users
+      .lockById(id)
+      .orElseThrow(() -> fail(404, "Пользователь не найден"));
+    u.avatarImage = image;
+    u.avatarVersion = UUID.randomUUID().toString();
+    users.save(u);
+    return profile(id, true);
+  }
+
+  public Map<String, Object> removeAvatar(Long id) {
+    var u = users
+      .lockById(id)
+      .orElseThrow(() -> fail(404, "Пользователь не найден"));
+    u.avatarImage = null;
+    u.avatarVersion = null;
+    users.save(u);
+    return profile(id, true);
+  }
+
+  public byte[] avatar(Long id) {
+    byte[] image = user(id).avatarImage;
+    if (image == null) throw fail(404, "Фото пока нет");
+    return image;
   }
 
   public Map<String, Integer> restartRecommendations(Long actor) {
