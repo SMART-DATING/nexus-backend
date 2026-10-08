@@ -16,11 +16,13 @@ cd nexus-backend
 
 Windows PowerShell:
 ```powershell
+pwsh -File scripts/download-model.ps1
 .\mvnw.cmd clean package
 java -jar target/nexus-backend-0.0.1-SNAPSHOT.jar --spring.profiles.active=local --nexus.demo=true
 ```
 Linux/macOS:
 ```sh
+sh scripts/download-model.sh
 ./mvnw clean package
 java -jar target/nexus-backend-0.0.1-SNAPSHOT.jar --spring.profiles.active=local --nexus.demo=true
 ```
@@ -115,3 +117,9 @@ API имеет префикс `/api/v1`. `POST /auth/register` и `/auth/login` 
 - `null value in column category of relation interests`: обновите рабочую ветку и пересоберите backend. Модель сохраняет обязательную категорию из старой базы, новые интересы получают «Общее». Существующие категории и данные сохраняются; удалять Docker volume не требуется.
 
 Версия предназначена для локальной демонстрации: загрузка фото, ML, модерация и восстановление пароля ещё не реализованы.
+
+## Смысловой подбор и шесть фото
+
+До 12 личных рассказов (20–6000 символов) для локальной модели RuBERT-tiny2, 312-мерные векторы и cosine. Тексты и названия видит только автор через /contexts/me. Публичные темы необязательны и не определяют ranking. Для подбора нужен хотя бы один рассказ. Фото 0–6: свои доступны полностью, чужие — в пределах числа своих. На сервере проверяются квота, порядок и временная ссылка. Галерея поддерживает добавление, замену, удаление и перестановку. Старый аватар переносится без потери аккаунтов/чатов.
+
+Перед первой локальной сборкой скачайте модель скриптом backend/scripts/download-model.ps1 (PowerShell) или download-model.sh (Linux); Docker делает это сам. Путь можно задать NEXUS_MODEL_DIR. Подробности модели и ограничений — MODEL.md в backend и architecture/MODEL.md в docs.

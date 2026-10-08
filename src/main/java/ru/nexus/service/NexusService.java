@@ -26,6 +26,8 @@ public class NexusService {
   private final NoticeRepository notices;
   private final SessionTokenRepository sessions;
   private final BCryptPasswordEncoder encoder;
+  private final GalleryService gallery;
+  private final ContextService contexts;
 
   public NexusService(
     UserAccountRepository u,
@@ -38,11 +40,15 @@ public class NexusService {
     BCryptPasswordEncoder e,
     InterestRepository catalogue,
     UserInterestRepository selections,
-    PreferenceRepository preferenceStore
+    PreferenceRepository preferenceStore,
+    GalleryService gallery,
+    ContextService contexts
   ) {
     this.catalogue = catalogue;
     this.selections = selections;
     this.preferenceStore = preferenceStore;
+    this.gallery = gallery;
+    this.contexts = contexts;
     users = u;
     properties = p;
     reactions = r;
@@ -131,7 +137,7 @@ public class NexusService {
   }
 
   public void logout(String header) {
-    identify(header);
+    gallery.revoke(identify(header));
     sessions.deleteByTokenHash(hash(header.substring(7)));
   }
 
@@ -181,18 +187,19 @@ public class NexusService {
   }
 
   public Map<String, Object> profile(Long id, boolean own) {
+    return profileFor(id, own ? id : null);
+  }
+
+  public Map<String, Object> profileFor(Long id, Long viewer) {
+    boolean own = id.equals(viewer);
     UserAccount u = user(id);
     var all = properties.findByUserId(id);
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("userId", id);
-    if (u.avatarImage != null) out.put(
-      "avatarUrl",
-      "/api/v1/avatars/" + id + "?v=" + u.avatarVersion
-    );
-    else if (u.avatarKey != null) out.put(
-      "avatarUrl",
-      "/avatars/" + u.avatarKey + ".svg"
-    );
+    out.putAll(gallery.view(id, viewer));
+    var visible = (List<Map<String, Object>>) out.get("photos");
+    if (!visible.isEmpty()) out.put("avatarUrl", visible.get(0).get("url"));
+    if (own) out.put("contextCount", contexts.count(id));
     out.put("interests", interestNames(id));
     out.put(
       "properties",
@@ -285,9 +292,7 @@ public class NexusService {
   }
 
   public boolean profileComplete(Long id) {
-    return (
-      properties.findByUserId(id).size() == 4 && selections.existsByUserId(id)
-    );
+    return properties.findByUserId(id).size() == 4;
   }
 
   public List<Map<String, Object>> recommend(Long id, int limit) {
@@ -302,11 +307,16 @@ public class NexusService {
     UserAccount me = user(id);
     Preference pref = preferenceFor(me);
     Set<String> ownInterests = interestNames(id);
+    double[] ownVector = contexts.vector(id);
     if (!profileComplete(id)) throw fail(
       409,
       "Сначала заполните профиль и интересы"
     );
     var excluded = new HashSet<Long>();
+    if (ownVector == null) throw fail(
+      409,
+      "Добавьте личный рассказ о себе для смыслового подбора"
+    );
     excluded.add(id);
     reactions
       .findByActorId(id)
@@ -315,7 +325,11 @@ public class NexusService {
       .forEach(r -> excluded.add(r.targetId));
     List<Map<String, Object>> result = new ArrayList<>();
     for (UserAccount u : users.findAll()) {
-      if (excluded.contains(u.id) || !profileComplete(u.id)) continue;
+      if (
+        excluded.contains(u.id) ||
+        !profileComplete(u.id) ||
+        !contexts.hasContext(u.id)
+      ) continue;
       String birth = properties
         .findByUserId(u.id)
         .stream()
@@ -333,12 +347,13 @@ public class NexusService {
       common.retainAll(theirs);
       Set<String> union = new HashSet<>(ownInterests);
       union.addAll(theirs);
-      var p = profile(u.id, false);
+      var p = profileFor(u.id, id);
       p.put("commonInterests", common);
       p.put(
         "compatibilityScore",
-        union.isEmpty() ? 0.0 : (double) common.size() / union.size()
+        SemanticEncoder.cosine(ownVector, contexts.vector(u.id))
       );
+      p.put("matchingBasis", "semantic");
       result.add(p);
     }
     result.sort(
@@ -429,23 +444,12 @@ public class NexusService {
     Long id,
     org.springframework.web.multipart.MultipartFile file
   ) {
-    byte[] image = AvatarImages.normalize(file);
-    var u = users
-      .lockById(id)
-      .orElseThrow(() -> fail(404, "Пользователь не найден"));
-    u.avatarImage = image;
-    u.avatarVersion = UUID.randomUUID().toString();
-    users.save(u);
+    gallery.replaceFirst(id, file);
     return profile(id, true);
   }
 
   public Map<String, Object> removeAvatar(Long id) {
-    var u = users
-      .lockById(id)
-      .orElseThrow(() -> fail(404, "Пользователь не найден"));
-    u.avatarImage = null;
-    u.avatarVersion = null;
-    users.save(u);
+    if (gallery.count(id) > 0) gallery.delete(id, gallery.firstId(id));
     return profile(id, true);
   }
 
@@ -488,7 +492,7 @@ public class NexusService {
       "id",
       m.id,
       "user",
-      profile(id.equals(m.firstId) ? m.secondId : m.firstId, false),
+      profileFor(id.equals(m.firstId) ? m.secondId : m.firstId, id),
       "createdAt",
       m.createdAt
     );

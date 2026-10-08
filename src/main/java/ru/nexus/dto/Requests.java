@@ -20,7 +20,7 @@ public class Requests {
     @NotNull
     @Size(min = 4, max = 4)
     List<@jakarta.validation.Valid Property> properties,
-    @NotNull @Size(min = 1, max = 10) Set<String> interests
+    @NotNull @Size(max = 10) Set<String> interests
   ) {}
 
   public record Preferences(
@@ -29,4 +29,11 @@ public class Requests {
   ) {}
 
   public record Message(@NotBlank @Size(max = 5000) String text) {}
+
+  public record Context(
+    @NotBlank @Size(max = 60) String title,
+    @NotBlank @Size(min = 20, max = 6000) String content
+  ) {}
+
+  public record PhotoOrder(@NotNull @Size(max = 6) List<@NotNull Long> ids) {}
 }

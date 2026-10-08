@@ -12,9 +12,17 @@ import ru.nexus.service.NexusService;
 public class ApiController {
 
   private final NexusService s;
+  private final ru.nexus.service.GalleryService gallery;
+  private final ru.nexus.service.ContextService contexts;
 
-  public ApiController(NexusService s) {
+  public ApiController(
+    NexusService s,
+    ru.nexus.service.GalleryService gallery,
+    ru.nexus.service.ContextService contexts
+  ) {
     this.s = s;
+    this.gallery = gallery;
+    this.contexts = contexts;
   }
 
   @GetMapping("/health")
@@ -69,7 +77,7 @@ public class ApiController {
     @PathVariable Long id
   ) {
     Long me = s.identify(h);
-    return s.profile(id, me.equals(id));
+    return s.profileFor(id, me);
   }
 
   @PostMapping(value = "/profiles/me/avatar", consumes = "multipart/form-data")
@@ -87,14 +95,108 @@ public class ApiController {
     return s.removeAvatar(s.identify(h));
   }
 
-  @GetMapping(value = "/avatars/{id}", produces = "image/jpeg")
+  @GetMapping(value = "/avatars/{id}")
   public org.springframework.http.ResponseEntity<byte[]> avatar(
+    @PathVariable Long id,
+    @RequestParam(required = false) String access
+  ) {
+    return image(gallery.firstId(id), access);
+  }
+
+  @GetMapping("/photos/{id}")
+  public org.springframework.http.ResponseEntity<byte[]> image(
+    @PathVariable Long id,
+    @RequestParam(required = false) String access
+  ) {
+    var image = gallery.image(id, access);
+    return org.springframework.http.ResponseEntity.ok()
+      .header("Content-Type", image.type())
+      .header("Cache-Control", "private, no-store")
+      .header("X-Content-Type-Options", "nosniff")
+      .body(image.bytes());
+  }
+
+  @PostMapping(value = "/profiles/me/photos", consumes = "multipart/form-data")
+  public Object addPhoto(
+    @RequestHeader(value = "Authorization", required = false) String h,
+    @RequestParam("file") org.springframework.web.multipart.MultipartFile file
+  ) {
+    var id = s.identify(h);
+    gallery.add(id, file);
+    return s.profile(id, true);
+  }
+
+  @PutMapping(
+    value = "/profiles/me/photos/{photoId}",
+    consumes = "multipart/form-data"
+  )
+  public Object replacePhoto(
+    @RequestHeader(value = "Authorization", required = false) String h,
+    @PathVariable Long photoId,
+    @RequestParam("file") org.springframework.web.multipart.MultipartFile file
+  ) {
+    var id = s.identify(h);
+    gallery.replace(id, photoId, file);
+    return s.profile(id, true);
+  }
+
+  @DeleteMapping("/profiles/me/photos/{photoId}")
+  public Object deletePhoto(
+    @RequestHeader(value = "Authorization", required = false) String h,
+    @PathVariable Long photoId
+  ) {
+    var id = s.identify(h);
+    gallery.delete(id, photoId);
+    return s.profile(id, true);
+  }
+
+  @PutMapping("/profiles/me/photos/order")
+  public Object orderPhotos(
+    @RequestHeader(value = "Authorization", required = false) String h,
+    @Valid @RequestBody PhotoOrder order
+  ) {
+    var id = s.identify(h);
+    gallery.reorder(id, order.ids());
+    return s.profile(id, true);
+  }
+
+  @GetMapping("/contexts/me")
+  public Object myContexts(
+    @RequestHeader(value = "Authorization", required = false) String h
+  ) {
+    return contexts.mine(s.identify(h));
+  }
+
+  @PostMapping("/contexts/me")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Object createContext(
+    @RequestHeader(value = "Authorization", required = false) String h,
+    @Valid @RequestBody Context context
+  ) {
+    return contexts.save(
+      s.identify(h),
+      null,
+      context.title(),
+      context.content()
+    );
+  }
+
+  @PutMapping("/contexts/me/{id}")
+  public Object updateContext(
+    @RequestHeader(value = "Authorization", required = false) String h,
+    @PathVariable Long id,
+    @Valid @RequestBody Context context
+  ) {
+    return contexts.save(s.identify(h), id, context.title(), context.content());
+  }
+
+  @DeleteMapping("/contexts/me/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void deleteContext(
+    @RequestHeader(value = "Authorization", required = false) String h,
     @PathVariable Long id
   ) {
-    return org.springframework.http.ResponseEntity.ok()
-      .header("Cache-Control", "no-cache")
-      .header("X-Content-Type-Options", "nosniff")
-      .body(s.avatar(id));
+    contexts.delete(s.identify(h), id);
   }
 
   @ExceptionHandler(

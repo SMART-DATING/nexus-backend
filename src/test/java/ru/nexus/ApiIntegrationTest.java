@@ -97,6 +97,18 @@ class ApiIntegrationTest {
 
   void fill(Account a, String name) throws Exception {
     call("PUT", "/profiles/me", a.token, profile(name, "2001-04-12"), 200);
+    call(
+      "POST",
+      "/contexts/me",
+      a.token,
+      Map.of(
+        "title",
+        "Обо мне",
+        "content",
+        "Люблю живую музыку, прогулки и спокойные разговоры. Ценю доверие и поддержку."
+      ),
+      201
+    );
   }
 
   @Test
@@ -485,7 +497,7 @@ class ApiIntegrationTest {
       .getResponse()
       .getContentAsString();
     String url = json.readTree(uploaded).path("avatarUrl").asText();
-    assertTrue(url.startsWith("/api/v1/avatars/" + a.id + "?v="));
+    assertTrue(url.startsWith("/api/v1/photos/"));
     assertEquals(
       url,
       call("GET", "/profiles/me", a.token, null, 200).path("avatarUrl").asText()
@@ -548,11 +560,274 @@ class ApiIntegrationTest {
       call("GET", "/profiles/me", a.token, null, 200).path("avatarUrl").asText()
     );
     call("DELETE", "/profiles/me/avatar", b.token, null, 200);
-    mvc.perform(get("/api/v1/avatars/" + a.id)).andExpect(status().isOk());
+    mvc
+      .perform(
+        get(
+          call("GET", "/profiles/me", a.token, null, 200)
+            .path("avatarUrl")
+            .asText()
+        )
+      )
+      .andExpect(status().isOk());
     call("DELETE", "/profiles/me/avatar", a.token, null, 200);
     mvc
       .perform(get("/api/v1/avatars/" + a.id))
       .andExpect(status().isNotFound());
     call("GET", "/users/me", null, null, 401);
+  }
+
+  @Test
+  void privateContextsOwnOnlyAndSemanticRankingChangesAfterEditing()
+    throws Exception {
+    Account a = register("semantic-a"),
+      b = register("semantic-b"),
+      c = register("semantic-c");
+    for (var u : List.of(a, b, c))
+      call(
+        "PUT",
+        "/profiles/me",
+        u.token,
+        profile(
+          "Semantic",
+          java.time.LocalDate.now().minusYears(89).toString()
+        ),
+        200
+      );
+    call(
+      "PUT",
+      "/preferences/me",
+      a.token,
+      Map.of("minAge", 89, "maxAge", 89),
+      200
+    );
+    String books =
+      "Люблю читать романы и обсуждать литературу. Книги помогают мне понимать людей.";
+    String hiking =
+      "Мне нравятся пешие походы, горы, палатки и ночёвки на природе вдали от города.";
+    var note = call(
+      "POST",
+      "/contexts/me",
+      a.token,
+      Map.of("title", "Личное", "content", books),
+      201
+    );
+    call(
+      "POST",
+      "/contexts/me",
+      b.token,
+      Map.of(
+        "title",
+        "Личное B",
+        "content",
+        "Обожаю книги, литературные встречи и разговоры о писателях и романах."
+      ),
+      201
+    );
+    call(
+      "POST",
+      "/contexts/me",
+      c.token,
+      Map.of("title", "Личное C", "content", hiking),
+      201
+    );
+    var first = call("GET", "/recommendations", a.token, null, 200).path(
+      "items"
+    );
+    assertEquals(b.id, first.get(0).path("userId").asLong());
+    assertFalse(first.toString().contains("content"));
+    assertFalse(first.toString().contains("embedding"));
+    assertFalse(
+      call("GET", "/profiles/" + a.id, b.token, null, 200)
+        .toString()
+        .contains(books)
+    );
+    String path = "/contexts/me/" + note.path("id").asLong();
+    call(
+      "PUT",
+      path,
+      b.token,
+      Map.of("title", "Hacked", "content", hiking),
+      403
+    );
+    call("DELETE", path, b.token, null, 403);
+    call(
+      "PUT",
+      path,
+      a.token,
+      Map.of("title", "Новый взгляд", "content", hiking),
+      200
+    );
+    assertEquals(
+      c.id,
+      call("GET", "/recommendations", a.token, null, 200)
+        .path("items")
+        .get(0)
+        .path("userId")
+        .asLong()
+    );
+    var extra = call(
+      "POST",
+      "/contexts/me",
+      a.token,
+      Map.of("title", "Ещё", "content", books),
+      201
+    );
+    assertEquals(
+      2,
+      call("GET", "/contexts/me", a.token, null, 200).path("items").size()
+    );
+    call(
+      "DELETE",
+      "/contexts/me/" + extra.path("id").asLong(),
+      a.token,
+      null,
+      204
+    );
+    call("DELETE", path, a.token, null, 204);
+    call("GET", "/recommendations", a.token, null, 409);
+  }
+
+  JsonNode addPhoto(Account a, int expectedStatus) throws Exception {
+    var image = new java.awt.image.BufferedImage(
+      10,
+      10,
+      java.awt.image.BufferedImage.TYPE_INT_RGB
+    );
+    var out = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(image, "png", out);
+    var file = new org.springframework.mock.web.MockMultipartFile(
+      "file",
+      "photo.png",
+      "image/png",
+      out.toByteArray()
+    );
+    var body = mvc
+      .perform(
+        multipart("/api/v1/profiles/me/photos")
+          .file(file)
+          .header("Authorization", "Bearer " + a.token)
+      )
+      .andExpect(status().is(expectedStatus))
+      .andReturn()
+      .getResponse()
+      .getContentAsString();
+    return json.readTree(body);
+  }
+
+  @Test
+  void sixPhotoQuotaProtectsUrlsAndPreviouslyIssuedMediaAfterQuotaDrops()
+    throws Exception {
+    Account a = register("gallery-a"),
+      b = register("gallery-b");
+    for (int i = 0; i < 6; i++) addPhoto(b, 200);
+    addPhoto(b, 409);
+    var hidden = call("GET", "/profiles/" + b.id, a.token, null, 200);
+    assertEquals(6, hidden.path("photoCount").asInt());
+    assertEquals(0, hidden.path("photos").size());
+    assertFalse(hidden.has("avatarUrl"));
+    addPhoto(a, 200);
+    assertEquals(
+      1,
+      call("GET", "/profiles/" + b.id, a.token, null, 200)
+        .path("photos")
+        .size()
+    );
+    var own = addPhoto(a, 200);
+    var visible = call("GET", "/profiles/" + b.id, a.token, null, 200).path(
+      "photos"
+    );
+    assertEquals(2, visible.size());
+    String second = visible.get(1).path("url").asText();
+    long bid = visible.get(1).path("id").asLong();
+    mvc
+      .perform(get(second))
+      .andExpect(status().isOk())
+      .andExpect(header().string("Cache-Control", "private, no-store"));
+    mvc.perform(get("/api/v1/photos/" + bid)).andExpect(status().isForbidden());
+    call("DELETE", "/profiles/me/photos/" + bid, a.token, null, 403);
+    call(
+      "DELETE",
+      "/profiles/me/photos/" + own.path("photos").get(1).path("id").asLong(),
+      a.token,
+      null,
+      200
+    );
+    mvc.perform(get(second)).andExpect(status().isForbidden());
+    var bphotos = call("GET", "/profiles/me", b.token, null, 200).path(
+      "photos"
+    );
+    var ids = new ArrayList<Long>();
+    bphotos.forEach(x -> ids.add(x.path("id").asLong()));
+    Collections.reverse(ids);
+    call("PUT", "/profiles/me/photos/order", b.token, Map.of("ids", ids), 200);
+    assertEquals(
+      ids.get(0).longValue(),
+      call("GET", "/profiles/" + b.id, a.token, null, 200)
+        .path("photos")
+        .get(0)
+        .path("id")
+        .asLong()
+    );
+    call("PUT", "/profiles/me/photos/order", a.token, Map.of("ids", ids), 400);
+  }
+
+  @Autowired
+  ru.nexus.service.GalleryService gallery;
+
+  @Autowired
+  ru.nexus.repository.UserAccountRepository userRepository;
+
+  @Test
+  void legacyPhotoMigratesOnceAndDeletedPhotoDoesNotReturn() throws Exception {
+    var a = register("legacy-photo");
+    var u = userRepository.findById(a.id).orElseThrow();
+    u.avatarImage = new byte[] { 1, 2, 3 };
+    u.avatarVersion = "legacy";
+    u.galleryMigrated = false;
+    userRepository.saveAndFlush(u);
+    gallery.migrate(a.id);
+    assertEquals(1, gallery.count(a.id));
+    long photo = gallery.firstId(a.id);
+    gallery.migrate(a.id);
+    assertEquals(photo, gallery.firstId(a.id));
+    gallery.delete(a.id, photo);
+    gallery.migrate(a.id);
+    assertEquals(0, gallery.count(a.id));
+  }
+
+  @Test
+  void twoConcurrentRecommendationRequestsDoNotLockEachOthersGallery()
+    throws Exception {
+    var a = register("concurrent-rec-a");
+    var b = register("concurrent-rec-b");
+    fill(a, "A");
+    fill(b, "B");
+    var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+    try {
+      var start = new java.util.concurrent.CountDownLatch(1);
+      var left = pool.submit(() -> {
+        start.await();
+        return call("POST", "/recommendations/next", a.token, null, 200);
+      });
+      var right = pool.submit(() -> {
+        start.await();
+        return call("POST", "/recommendations/next", b.token, null, 200);
+      });
+      start.countDown();
+      assertFalse(
+        left
+          .get(10, java.util.concurrent.TimeUnit.SECONDS)
+          .path("items")
+          .isEmpty()
+      );
+      assertFalse(
+        right
+          .get(10, java.util.concurrent.TimeUnit.SECONDS)
+          .path("items")
+          .isEmpty()
+      );
+    } finally {
+      pool.shutdownNow();
+    }
   }
 }

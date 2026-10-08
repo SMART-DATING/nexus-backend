@@ -21,6 +21,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+      - run: sh scripts/download-model.sh
       - run: mvn -B verify
       - run: mvn -B test -Dtest=PostgresIntegrationTest
         env:

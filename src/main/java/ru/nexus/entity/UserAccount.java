@@ -24,4 +24,6 @@ public class UserAccount {
 
   @Column(length = 36)
   public String avatarVersion;
+
+  public Boolean galleryMigrated;
 }

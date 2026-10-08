@@ -14,7 +14,10 @@ public class Interest {
   public String name;
 
   // Retain the mandatory category column used by existing prototype databases.
-  @Column(nullable = false, length = 255, columnDefinition = "varchar(255) default 'Общее'")
+  @Column(
+    nullable = false,
+    length = 255,
+    columnDefinition = "varchar(255) default 'Общее'"
+  )
   public String category = "Общее";
 }
-

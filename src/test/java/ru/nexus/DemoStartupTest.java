@@ -57,9 +57,14 @@ class DemoStartupTest {
     for (var user : users.findAll()) {
       assertTrue(service.profileComplete(user.id), user.email);
       assertTrue(user.avatarKey.matches("demo-(0[1-9]|1[0-4])"), user.email);
-      assertEquals(
-        "/avatars/" + user.avatarKey + ".svg",
-        service.profile(user.id, false).get("avatarUrl")
+      assertFalse(service.profile(user.id, false).containsKey("avatarUrl"));
+      assertEquals(6, service.profile(user.id, true).get("photoCount"));
+      assertTrue(
+        service
+          .profile(user.id, true)
+          .get("avatarUrl")
+          .toString()
+          .startsWith("/api/v1/photos/")
       );
     }
     assertEquals(
@@ -112,7 +117,12 @@ class DemoStartupTest {
       editedProfile.get("interests"),
       profileAfterRestart.get("interests")
     );
-    assertEquals("/avatars/demo-01.svg", profileAfterRestart.get("avatarUrl"));
+    assertTrue(
+      profileAfterRestart
+        .get("avatarUrl")
+        .toString()
+        .startsWith("/api/v1/photos/")
+    );
     assertEquals(15, users.count());
     var ordinary = users.findByEmail("ordinary@test.local").orElseThrow();
     assertNull(ordinary.avatarKey);
