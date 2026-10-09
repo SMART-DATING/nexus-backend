@@ -12,6 +12,7 @@ public class ChatMessage {
 
   public Long matchId;
   public Long senderId;
+  public Boolean readByRecipient = false;
 
   @Column(length = 5000, nullable = false)
   public String text;

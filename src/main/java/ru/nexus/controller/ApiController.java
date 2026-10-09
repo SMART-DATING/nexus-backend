@@ -330,6 +330,15 @@ public class ApiController {
     return s.send(s.identify(h), id, m.text());
   }
 
+  @PatchMapping("/matches/{id}/read")
+  public Object readMessages(
+    @RequestHeader(value = "Authorization", required = false) String h,
+    @PathVariable Long id,
+    @Valid @RequestBody ReadMessages request
+  ) {
+    return s.readMessages(s.identify(h), id, request.throughId());
+  }
+
   @GetMapping("/notifications")
   public Object notices(
     @RequestHeader(value = "Authorization", required = false) String h

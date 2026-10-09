@@ -515,7 +515,9 @@ public class NexusService {
       "user",
       profileFor(id.equals(m.firstId) ? m.secondId : m.firstId, id),
       "createdAt",
-      m.createdAt
+      m.createdAt,
+      "unreadCount",
+      messages.unreadCount(mid, id)
     );
   }
 
@@ -534,6 +536,12 @@ public class NexusService {
       after,
       org.springframework.data.domain.PageRequest.of(0, 100)
     );
+  }
+
+  public Map<String, Long> readMessages(Long id, Long mid, Long throughId) {
+    accessible(id, mid);
+    messages.readThrough(mid, id, throughId);
+    return Map.of("unreadCount", messages.unreadCount(mid, id));
   }
 
   public ChatMessage send(Long id, Long mid, String text) {

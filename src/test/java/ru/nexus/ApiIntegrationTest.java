@@ -112,6 +112,98 @@ class ApiIntegrationTest {
   }
 
   @Test
+  void unreadMessagesAreRecipientScopedAndReadOnlyThroughDeliveredId()
+    throws Exception {
+    var a = register("unread-a");
+    var b = register("unread-b");
+    var outsider = register("unread-outsider");
+    fill(a, "Unread A");
+    fill(b, "Unread B");
+    call("POST", "/users/" + b.id + "/like", a.token, null, 200);
+    long mid = call("POST", "/users/" + a.id + "/like", b.token, null, 200)
+      .path("matchId")
+      .asLong();
+    String path = "/matches/" + mid;
+    assertEquals(
+      0,
+      call("GET", path, b.token, null, 200).path("unreadCount").asLong()
+    );
+    long first = call(
+      "POST",
+      path + "/messages",
+      a.token,
+      Map.of("text", "First"),
+      201
+    )
+      .path("id")
+      .asLong();
+    long second = call(
+      "POST",
+      path + "/messages",
+      a.token,
+      Map.of("text", "Second"),
+      201
+    )
+      .path("id")
+      .asLong();
+    assertEquals(
+      2,
+      call("GET", path, b.token, null, 200).path("unreadCount").asLong()
+    );
+    assertEquals(
+      0,
+      call("GET", path, a.token, null, 200).path("unreadCount").asLong()
+    );
+    call("GET", path + "/messages", b.token, null, 200);
+    assertEquals(
+      2,
+      call("GET", path, b.token, null, 200).path("unreadCount").asLong()
+    );
+    call(
+      "PATCH",
+      path + "/read",
+      outsider.token,
+      Map.of("throughId", second),
+      403
+    );
+    call("PATCH", path + "/read", null, Map.of("throughId", second), 401);
+    call("PATCH", path + "/read", b.token, Map.of("throughId", 0), 400);
+    call("PATCH", path + "/read", b.token, Map.of(), 400);
+    call("PATCH", path + "/read", a.token, Map.of("throughId", second), 200);
+    assertEquals(
+      2,
+      call("GET", path, b.token, null, 200).path("unreadCount").asLong()
+    );
+    assertEquals(
+      1,
+      call("PATCH", path + "/read", b.token, Map.of("throughId", first), 200)
+        .path("unreadCount")
+        .asLong()
+    );
+    call(
+      "POST",
+      path + "/messages",
+      a.token,
+      Map.of("text", "Arrived after reading"),
+      201
+    );
+    assertEquals(
+      1,
+      call("PATCH", path + "/read", b.token, Map.of("throughId", second), 200)
+        .path("unreadCount")
+        .asLong()
+    );
+    assertEquals(
+      1,
+      call("GET", "/matches", b.token, null, 200)
+        .path("items")
+        .get(0)
+        .path("unreadCount")
+        .asLong()
+    );
+  }
+
+  @Test
   void completeJourneyAndAccessBoundaries() throws Exception {
     Account a = register("a"),
       b = register("b"),

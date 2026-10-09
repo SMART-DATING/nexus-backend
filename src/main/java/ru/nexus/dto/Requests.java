@@ -30,6 +30,8 @@ public class Requests {
 
   public record Message(@NotBlank @Size(max = 5000) String text) {}
 
+  public record ReadMessages(@NotNull @Positive Long throughId) {}
+
   public record Context(
     @NotBlank @Size(max = 60) String title,
     @NotBlank @Size(min = 20, max = 6000) String content
