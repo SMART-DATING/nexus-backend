@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="440" viewBox="0 0 360 440" role="img" aria-label="Иллюстрированный портрет">
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#233d7c"/><stop offset="1" stop-color="#9068cf"/></linearGradient><linearGradient id="shirt" x2="0" y2="1"><stop stop-color="#7299ed"/><stop offset="1" stop-color="#233d7c"/></linearGradient></defs>
+<rect width="360" height="440" fill="url(#bg)"/><circle cx="289" cy="97" r="107" fill="#e5d6ff" opacity=".09"/><circle cx="44" cy="352" r="132" fill="#8ecbff" opacity=".09"/><path d="M26 120h41M46 100v41M294 271h23M305 260v23" stroke="#d8deff" stroke-width="2" opacity=".3"/>
+<path d="M65 440 L74 334 Q83 293 151 284 L209 284 Q277 295 286 334 L300 440Z" fill="url(#shirt)"/>
+<path d="M157 247h46v52q-23 25-46 0Z" fill="#e5b99c"/><path d="M158 249h44v18q-21 13-44-1Z" fill="#7c4837" opacity=".16"/>
+<ellipse cx="124" cy="193" rx="12" ry="19" fill="#e5b99c"/><ellipse cx="236" cy="193" rx="12" ry="19" fill="#e5b99c"/><path d="M123 156Q125 111 180 110Q235 111 237 156L232 220Q222 262 180 268Q138 260 128 221Z" fill="#e5b99c"/>
+<path d="M121 164 Q106 101 151 94 Q181 66 218 100 Q251 112 239 165 L221 142 Q179 153 141 134Z" fill="#322632"/><path d="M143 169q12-5 22 0M195 169q12-5 22 0" fill="none" stroke="#322632" stroke-width="3" stroke-linecap="round"/>
+<g fill="#302b38"><ellipse cx="155" cy="185" rx="3.5" ry="4.5"/><ellipse cx="205" cy="185" rx="3.5" ry="4.5"/></g><path d="M180 189l-4 18h9" fill="none" stroke="#995f49" opacity=".5" stroke-width="2" stroke-linecap="round"/>
+<g fill="#a96956" opacity=".5"><circle cx="142" cy="203" r="2"/><circle cx="151" cy="207" r="2"/><circle cx="209" cy="206" r="2"/><circle cx="219" cy="202" r="2"/></g><path d="M164 224q16 12 32 0" fill="none" stroke="#8f4c50" stroke-width="3" stroke-linecap="round"/><path d="M146 297l34 28 34-28" fill="none" stroke="#e7e5ff" stroke-opacity=".3" stroke-width="3"/>
+<path d="M107 350l-8 90M253 350l8 90" stroke="#233d7c" stroke-opacity=".25" stroke-width="3"/></svg>
