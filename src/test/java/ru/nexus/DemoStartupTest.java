@@ -40,6 +40,9 @@ class DemoStartupTest {
   NexusService service;
 
   @Autowired
+  ru.nexus.service.DataExportService dataExport;
+
+  @Autowired
   DemoData demo;
 
   @Autowired
@@ -51,6 +54,10 @@ class DemoStartupTest {
   @Test
   void allFourteenDemoProfilesStartAndReseedingPreservesEditedProfiles() {
     assertEquals(14, users.count());
+    var export = dataExport.export(
+      users.findByEmail("demo@nexus.local").orElseThrow().id
+    );
+    assertEquals(6, ((java.util.List<?>) export.get("photos")).size());
     assertEquals(Interests.ALL.size(), interests.count());
     assertEquals(14, preferences.count());
     assertTrue(entityManagerFactory.getMetamodel().getEntities().size() >= 10);

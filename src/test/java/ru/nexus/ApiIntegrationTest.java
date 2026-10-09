@@ -715,6 +715,139 @@ class ApiIntegrationTest {
   }
 
   @Test
+  void hiddenProfileRejectsStrangersAndIssuedMediaButPreservesAnExistingChat()
+    throws Exception {
+    var a = register("hidden-a");
+    var b = register("hidden-b");
+    var stranger = register("hidden-c");
+    fill(a, "Hidden");
+    fill(b, "Existing");
+    fill(stranger, "Stranger");
+    addPhoto(a, 200);
+    addPhoto(b, 200);
+    addPhoto(stranger, 200);
+    String strangerUrl = call(
+      "GET",
+      "/profiles/" + a.id,
+      stranger.token,
+      null,
+      200
+    )
+      .path("photos")
+      .get(0)
+      .path("url")
+      .asText();
+    call("POST", "/users/" + a.id + "/like", b.token, null, 200);
+    long matchId = call("POST", "/users/" + b.id + "/like", a.token, null, 200)
+      .path("matchId")
+      .asLong();
+    String existingUrl = call("GET", "/profiles/" + a.id, b.token, null, 200)
+      .path("photos")
+      .get(0)
+      .path("url")
+      .asText();
+    call("PUT", "/users/me/discovery", null, Map.of("hidden", true), 401);
+    call("PUT", "/users/me/discovery", a.token, Map.of(), 400);
+    call("PUT", "/users/me/discovery", a.token, Map.of("hidden", true), 200);
+    assertTrue(
+      call("GET", "/users/me", a.token, null, 200)
+        .path("discoveryHidden")
+        .asBoolean()
+    );
+    call("GET", "/profiles/" + a.id, stranger.token, null, 404);
+    mvc.perform(get(strangerUrl)).andExpect(status().isForbidden());
+    mvc.perform(get(existingUrl)).andExpect(status().isOk());
+    call("POST", "/users/" + a.id + "/like", stranger.token, null, 404);
+    call("POST", "/users/" + stranger.id + "/like", a.token, null, 409);
+    var feed = call(
+      "GET",
+      "/recommendations?limit=50",
+      stranger.token,
+      null,
+      200
+    ).path("items");
+    assertTrue(
+      java.util.stream.StreamSupport.stream(
+        feed.spliterator(),
+        false
+      ).noneMatch(p -> p.path("userId").asLong() == a.id)
+    );
+    call(
+      "POST",
+      "/matches/" + matchId + "/messages",
+      b.token,
+      Map.of("text", "Чат сохранён"),
+      201
+    );
+    call("GET", "/matches/" + matchId + "/messages", a.token, null, 200);
+    call("PUT", "/users/me/discovery", a.token, Map.of("hidden", false), 200);
+    call("GET", "/profiles/" + a.id, stranger.token, null, 200);
+  }
+
+  @Test
+  void exportContainsOwnPhotoAndPrivateContextButNoSecretsOrOtherPeoplesMessages()
+    throws Exception {
+    var a = register("export-a");
+    var b = register("export-b");
+    fill(a, "Exporter");
+    fill(b, "Other");
+    addPhoto(a, 200);
+    addPhoto(b, 200);
+    call("POST", "/users/" + b.id + "/like", a.token, null, 200);
+    long matchId = call("POST", "/users/" + a.id + "/like", b.token, null, 200)
+      .path("matchId")
+      .asLong();
+    call(
+      "POST",
+      "/matches/" + matchId + "/messages",
+      a.token,
+      Map.of("text", "Своё сообщение"),
+      201
+    );
+    call(
+      "POST",
+      "/matches/" + matchId + "/messages",
+      b.token,
+      Map.of("text", "Чужое сообщение"),
+      201
+    );
+    call("GET", "/users/me/data", null, null, 401);
+    var data = call("GET", "/users/me/data", a.token, null, 200);
+    assertEquals(a.id, data.path("account").path("id").asLong());
+    assertEquals(1, data.path("photos").size());
+    assertEquals(
+      "image/jpeg",
+      data.path("photos").get(0).path("contentType").asText()
+    );
+    var bytes = Base64.getDecoder().decode(
+      data.path("photos").get(0).path("base64").asText()
+    );
+    assertNotNull(
+      javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes))
+    );
+    assertEquals(1, data.path("privateContexts").size());
+    assertEquals(
+      "Своё сообщение",
+      data.path("sentMessages").get(0).path("text").asText()
+    );
+    assertFalse(data.toString().contains("Чужое сообщение"));
+    assertFalse(data.toString().contains("passwordHash"));
+    assertFalse(data.toString().contains(a.token));
+    assertFalse(data.toString().contains("?access="));
+    mvc
+      .perform(
+        get("/api/v1/users/me/data").header(
+          "Authorization",
+          "Bearer " + a.token
+        )
+      )
+      .andExpect(header().string("Cache-Control", "private, no-store"));
+    var other = call("GET", "/users/me/data", b.token, null, 200);
+    assertEquals(b.id, other.path("account").path("id").asLong());
+    assertFalse(other.toString().contains("Своё сообщение"));
+  }
+
+  @Test
   void sixPhotoQuotaProtectsUrlsAndPreviouslyIssuedMediaAfterQuotaDrops()
     throws Exception {
     Account a = register("gallery-a"),

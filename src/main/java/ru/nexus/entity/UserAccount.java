@@ -26,4 +26,7 @@ public class UserAccount {
   public String avatarVersion;
 
   public Boolean galleryMigrated;
+
+  // Null preserves discoverability for databases created before this setting existed.
+  public Boolean discoveryHidden = false;
 }

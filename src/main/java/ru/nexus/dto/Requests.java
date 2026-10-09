@@ -36,4 +36,6 @@ public class Requests {
   ) {}
 
   public record PhotoOrder(@NotNull @Size(max = 6) List<@NotNull Long> ids) {}
+
+  public record Discovery(@NotNull Boolean hidden) {}
 }

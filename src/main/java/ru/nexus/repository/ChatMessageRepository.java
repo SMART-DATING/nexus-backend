@@ -6,6 +6,7 @@ public interface ChatMessageRepository
   extends
     org.springframework.data.jpa.repository.JpaRepository<ChatMessage, Long>
 {
+  java.util.List<ChatMessage> findBySenderIdOrderByIdAsc(Long senderId);
   java.util.List<ChatMessage> findByMatchIdAndIdGreaterThanOrderByIdAsc(
     Long matchId,
     Long after,

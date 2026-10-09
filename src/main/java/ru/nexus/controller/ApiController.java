@@ -14,15 +14,18 @@ public class ApiController {
   private final NexusService s;
   private final ru.nexus.service.GalleryService gallery;
   private final ru.nexus.service.ContextService contexts;
+  private final ru.nexus.service.DataExportService dataExport;
 
   public ApiController(
     NexusService s,
     ru.nexus.service.GalleryService gallery,
-    ru.nexus.service.ContextService contexts
+    ru.nexus.service.ContextService contexts,
+    ru.nexus.service.DataExportService dataExport
   ) {
     this.s = s;
     this.gallery = gallery;
     this.contexts = contexts;
+    this.dataExport = dataExport;
   }
 
   @GetMapping("/health")
@@ -61,6 +64,24 @@ public class ApiController {
     @RequestHeader(value = "Authorization", required = false) String h
   ) {
     return s.profile(s.identify(h), true);
+  }
+
+  @PutMapping("/users/me/discovery")
+  public Object discovery(
+    @RequestHeader(value = "Authorization", required = false) String h,
+    @Valid @RequestBody Discovery request
+  ) {
+    return s.discovery(s.identify(h), request.hidden());
+  }
+
+  @GetMapping("/users/me/data")
+  public org.springframework.http.ResponseEntity<Object> exportData(
+    @RequestHeader(value = "Authorization", required = false) String h
+  ) {
+    return org.springframework.http.ResponseEntity.ok()
+      .header("Cache-Control", "private, no-store")
+      .header("Content-Disposition", "attachment; filename=nexus-my-data.json")
+      .body(dataExport.export(s.identify(h)));
   }
 
   @PutMapping("/profiles/me")

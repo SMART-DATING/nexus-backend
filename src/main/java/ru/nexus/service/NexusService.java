@@ -179,6 +179,8 @@ public class NexusService {
       id,
       "email",
       u.email,
+      "discoveryHidden",
+      Boolean.TRUE.equals(u.discoveryHidden),
       "profile",
       profile(id, true),
       "preferences",
@@ -193,6 +195,7 @@ public class NexusService {
   public Map<String, Object> profileFor(Long id, Long viewer) {
     boolean own = id.equals(viewer);
     UserAccount u = user(id);
+    if (!gallery.canView(id, viewer)) throw fail(404, "Анкета недоступна");
     var all = properties.findByUserId(id);
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("userId", id);
@@ -327,6 +330,7 @@ public class NexusService {
     for (UserAccount u : users.findAll()) {
       if (
         excluded.contains(u.id) ||
+        Boolean.TRUE.equals(u.discoveryHidden) ||
         !profileComplete(u.id) ||
         !contexts.hasContext(u.id)
       ) continue;
@@ -378,6 +382,14 @@ public class NexusService {
     users
       .lockById(Math.max(actor, target))
       .orElseThrow(() -> fail(404, "Пользователь не найден"));
+    if (Boolean.TRUE.equals(user(actor).discoveryHidden)) throw fail(
+      409,
+      "Сначала верните свою анкету в знакомства"
+    );
+    if (Boolean.TRUE.equals(user(target).discoveryHidden)) throw fail(
+      404,
+      "Анкета недоступна"
+    );
     if (!profileComplete(actor) || !profileComplete(target)) throw fail(
       409,
       "Профиль не заполнен"
@@ -417,6 +429,15 @@ public class NexusService {
   public long skippedCount(Long actor) {
     user(actor);
     return reactions.countByActorIdAndLikedFalse(actor);
+  }
+
+  public Map<String, Object> discovery(Long id, boolean hidden) {
+    var u = users
+      .lockById(id)
+      .orElseThrow(() -> fail(404, "Пользователь не найден"));
+    u.discoveryHidden = hidden;
+    users.saveAndFlush(u);
+    return Map.of("hidden", hidden);
   }
 
   public Map<String, Object> nextRecommendations(Long actor, int limit) {

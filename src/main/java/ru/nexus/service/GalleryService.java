@@ -16,6 +16,7 @@ public class GalleryService {
 
   private final ProfilePhotoRepository photos;
   private final UserAccountRepository users;
+  private final PairMatchRepository matches;
 
   private record Grant(
     Long viewer,
@@ -29,10 +30,29 @@ public class GalleryService {
 
   public GalleryService(
     ProfilePhotoRepository photos,
-    UserAccountRepository users
+    UserAccountRepository users,
+    PairMatchRepository matches
   ) {
     this.photos = photos;
     this.users = users;
+    this.matches = matches;
+  }
+
+  public boolean canView(Long target, Long viewer) {
+    if (target.equals(viewer)) return true;
+    var user = users
+      .findById(target)
+      .orElseThrow(() -> NexusService.fail(404, "Анкета недоступна"));
+    if (!Boolean.TRUE.equals(user.discoveryHidden)) return true;
+    return (
+      viewer != null &&
+      matches
+        .findByFirstIdAndSecondId(
+          Math.min(target, viewer),
+          Math.max(target, viewer)
+        )
+        .isPresent()
+    );
   }
 
   public void migrate(Long userId) {
@@ -75,6 +95,10 @@ public class GalleryService {
   }
 
   public Map<String, Object> view(Long target, Long viewer) {
+    if (!canView(target, viewer)) throw NexusService.fail(
+      404,
+      "Анкета недоступна"
+    );
     migrate(target);
     if (viewer != null) migrate(viewer);
     var all = photos.findByUserIdOrderByPositionAscIdAsc(target);
@@ -142,6 +166,10 @@ public class GalleryService {
     var p = photos
       .findById(photoId)
       .orElseThrow(() -> NexusService.fail(404, "Фото не найдено"));
+    if (!canView(p.userId, g.viewer())) throw NexusService.fail(
+      403,
+      "Анкета скрыта"
+    );
     if (!p.version.equals(g.version())) throw NexusService.fail(
       403,
       "Фото обновилось. Откройте анкету заново"
