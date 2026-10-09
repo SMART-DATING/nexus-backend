@@ -6,10 +6,10 @@ Java 21 · Spring Boot 3.5 · Spring Security · JPA · PostgreSQL / H2 · ONNX 
 
 ## Разработка
 
-Текущая разработка ведётся в `feature/working-prototype`; изменения в [PR #12](https://github.com/SMART-DATING/nexus-backend/pull/12). `main` пока содержит первоначальный каркас.
+Рабочий прототип находится в `main`; история реализации — в [PR #12](https://github.com/SMART-DATING/nexus-backend/pull/12). Новые изменения оформляются отдельными ветками и Pull Request в `main`.
 
 ```sh
-git clone --branch feature/working-prototype https://github.com/SMART-DATING/nexus-backend.git
+git clone --branch main https://github.com/SMART-DATING/nexus-backend.git
 cd nexus-backend
 ```
 
@@ -67,7 +67,7 @@ docker compose up --build --wait
 - Встречные Like создают один match. Чат и уведомления доступны только участникам.
 - Match возвращает число непрочитанных входящих сообщений. `PATCH /matches/{id}/read` подтверждает чтение до положительного `throughId`; новые сообщения выше этой границы остаются непрочитанными. Получение истории само по себе не меняет счётчик.
 
-Контракты запросов: [API](https://github.com/SMART-DATING/nexus-docs/blob/feature/working-prototype/architecture/api-contracts.md). Модель, лицензия и контрольные суммы: [MODEL.md](MODEL.md).
+Контракты запросов: [API](https://github.com/SMART-DATING/nexus-docs/blob/main/architecture/api-contracts.md). Модель, лицензия и контрольные суммы: [MODEL.md](MODEL.md).
 
 ## Проверки
 
@@ -81,7 +81,7 @@ docker compose up --build --wait
 
 ## Эксплуатационные ограничения
 
-Схема обновляется через Hibernate `ddl-auto=update`; версионированные миграции ещё не внедрены. Изображения хранятся в БД, media-ticket — в памяти одного процесса. Подготовка публичного запуска требует HTTPS, модерации, ограничений запросов, восстановления доступа, удаления аккаунта и резервного копирования. Подробности: [архитектура](https://github.com/SMART-DATING/nexus-docs/blob/feature/working-prototype/architecture/system-architecture.md).
+Схема обновляется через Hibernate `ddl-auto=update`; версионированные миграции ещё не внедрены. Изображения хранятся в БД, media-ticket — в памяти одного процесса. Подготовка публичного запуска требует HTTPS, модерации, ограничений запросов, восстановления доступа, удаления аккаунта и резервного копирования. Подробности: [архитектура](https://github.com/SMART-DATING/nexus-docs/blob/main/architecture/system-architecture.md).
 
 
 ## Интерфейс и данные
@@ -90,4 +90,4 @@ docker compose up --build --wait
 
 В «Мои данные» доступны скрытие анкеты от новых участников и собственная выгрузка JSON. Пауза сохраняет существующие чаты и не удаляет аккаунт. Выгрузка не содержит токенов, хешей паролей и полученных сообщений.
 
-Сборка предназначена для локальных проверок на вымышленных данных. Готовность публичного запуска не заявляется. [Потоки данных, ограничения и задачи выпуска](https://github.com/SMART-DATING/nexus-docs/blob/feature/working-prototype/privacy/data-handling.md).
+Сборка предназначена для локальных проверок на вымышленных данных. Готовность публичного запуска не заявляется. [Потоки данных, ограничения и задачи выпуска](https://github.com/SMART-DATING/nexus-docs/blob/main/privacy/data-handling.md).
