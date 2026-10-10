@@ -28,6 +28,7 @@ public class NexusService {
   private final BCryptPasswordEncoder encoder;
   private final GalleryService gallery;
   private final ContextService contexts;
+  private final BlockService blocks;
 
   public NexusService(
     UserAccountRepository u,
@@ -42,13 +43,15 @@ public class NexusService {
     UserInterestRepository selections,
     PreferenceRepository preferenceStore,
     GalleryService gallery,
-    ContextService contexts
+    ContextService contexts,
+    BlockService blocks
   ) {
     this.catalogue = catalogue;
     this.selections = selections;
     this.preferenceStore = preferenceStore;
     this.gallery = gallery;
     this.contexts = contexts;
+    this.blocks = blocks;
     users = u;
     properties = p;
     reactions = r;
@@ -334,6 +337,7 @@ public class NexusService {
     for (UserAccount u : users.findAll()) {
       if (
         excluded.contains(u.id) ||
+        blocks.blocked(id, u.id) ||
         Boolean.TRUE.equals(u.discoveryHidden) ||
         !profileComplete(u.id) ||
         !contexts.hasContext(u.id)
@@ -390,6 +394,7 @@ public class NexusService {
       409,
       "Сначала верните свою анкету в знакомства"
     );
+    if (blocks.blocked(actor, target)) throw fail(404, "Анкета недоступна");
     if (Boolean.TRUE.equals(user(target).discoveryHidden)) throw fail(
       404,
       "Анкета недоступна"
@@ -508,6 +513,7 @@ public class NexusService {
       403,
       "Нет доступа к этому чату"
     );
+    if (blocks.blocked(m.firstId, m.secondId)) throw fail(404, "Чат недоступен");
     return m;
   }
 
@@ -529,6 +535,7 @@ public class NexusService {
     return matches
       .findByFirstIdOrSecondIdOrderByIdDesc(id, id)
       .stream()
+      .filter(m -> !blocks.blocked(m.firstId, m.secondId))
       .map(m -> match(id, m.id))
       .toList();
   }
@@ -550,6 +557,8 @@ public class NexusService {
 
   public ChatMessage send(Long id, Long mid, String text) {
     PairMatch m = accessible(id, mid);
+    blocks.lockPair(m.firstId, m.secondId);
+    accessible(id, mid);
     ChatMessage c = new ChatMessage();
     c.matchId = mid;
     c.senderId = id;
@@ -564,7 +573,11 @@ public class NexusService {
   }
 
   public List<Notice> notifications(Long id) {
-    return notices.findTop100ByUserIdOrderByIdDesc(id);
+    Set<Long> hiddenMatches = new HashSet<>();
+    matches.findByFirstIdOrSecondIdOrderByIdDesc(id, id).stream()
+      .filter(m -> blocks.blocked(m.firstId, m.secondId)).forEach(m -> hiddenMatches.add(m.id));
+    return notices.findTop100ByUserIdOrderByIdDesc(id).stream()
+      .filter(n -> !hiddenMatches.contains(n.matchId)).toList();
   }
 
   public Notice read(Long id, Long nid) {
@@ -572,6 +585,7 @@ public class NexusService {
       .findById(nid)
       .orElseThrow(() -> fail(404, "Уведомление не найдено"));
     if (!id.equals(n.userId)) throw fail(403, "Нет доступа");
+    if (n.matchId != null) accessible(id, n.matchId);
     n.seen = true;
     return n;
   }

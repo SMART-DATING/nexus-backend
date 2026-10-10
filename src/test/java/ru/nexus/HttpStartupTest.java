@@ -28,7 +28,7 @@ class HttpStartupTest {
   int port;
 
   @Test
-  void realHttpServerStartsWithDemoData() throws Exception {
+  void realHttpServerStartsWithoutAutomaticallySeedingIllustratedUsers() throws Exception {
     try (
       var client = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(5))
@@ -46,21 +46,21 @@ class HttpStartupTest {
       assertTrue(health.body().contains("ok"));
       var login = client.send(
         HttpRequest.newBuilder(
-          URI.create("http://127.0.0.1:" + port + "/api/v1/auth/login")
+          URI.create("http://127.0.0.1:" + port + "/api/v1/auth/register")
         )
           .timeout(Duration.ofSeconds(5))
           .header("Content-Type", "application/json")
           .POST(
             HttpRequest.BodyPublishers.ofString(
-              "{\"email\":\"demo5@nexus.local\",\"password\":\"NexusDemo2026!\"}"
+              "{\"email\":\"startup@test.local\",\"password\":\"Password123!\"}"
             )
           )
           .build(),
         HttpResponse.BodyHandlers.ofString()
       );
-      assertEquals(200, login.statusCode());
+      assertEquals(201, login.statusCode());
       assertTrue(login.body().contains("accessToken"));
-      assertTrue(login.body().contains("Никита"));
+      assertTrue(login.body().contains("startup@test.local"));
     }
   }
 }

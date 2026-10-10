@@ -15,17 +15,20 @@ public class ApiController {
   private final ru.nexus.service.GalleryService gallery;
   private final ru.nexus.service.ContextService contexts;
   private final ru.nexus.service.DataExportService dataExport;
+  private final ru.nexus.service.BlockService blocks;
 
   public ApiController(
     NexusService s,
     ru.nexus.service.GalleryService gallery,
     ru.nexus.service.ContextService contexts,
-    ru.nexus.service.DataExportService dataExport
+    ru.nexus.service.DataExportService dataExport,
+    ru.nexus.service.BlockService blocks
   ) {
     this.s = s;
     this.gallery = gallery;
     this.contexts = contexts;
     this.dataExport = dataExport;
+    this.blocks = blocks;
   }
 
   @GetMapping("/health")
@@ -294,6 +297,21 @@ public class ApiController {
     @PathVariable Long id
   ) {
     return s.react(s.identify(h), id, false);
+  }
+
+  @PostMapping("/users/{id}/block")
+  public Object block(@RequestHeader(value = "Authorization", required = false) String h, @PathVariable Long id) {
+    return blocks.set(s.identify(h), id, true);
+  }
+
+  @DeleteMapping("/users/{id}/block")
+  public Object unblock(@RequestHeader(value = "Authorization", required = false) String h, @PathVariable Long id) {
+    return blocks.set(s.identify(h), id, false);
+  }
+
+  @GetMapping("/users/me/blocks")
+  public Object blockedUsers(@RequestHeader(value = "Authorization", required = false) String h) {
+    return Map.of("items", blocks.mine(s.identify(h)));
   }
 
   @GetMapping("/matches")
