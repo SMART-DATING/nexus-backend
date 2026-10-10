@@ -29,6 +29,31 @@ import org.springframework.test.web.servlet.*;
 )
 class ApiIntegrationTest {
 
+  @Test
+  void uniqueLoginConfirmationAndLegacyEmailLogin() throws Exception {
+    String email = "login-" + UUID.randomUUID() + "@test.local";
+    String login = "user_" + UUID.randomUUID().toString().substring(0, 12);
+    var credentials = new HashMap<String, Object>(Map.of(
+      "email", email, "login", login, "password", "Password123!",
+      "passwordConfirmation", "DifferentPassword!"
+    ));
+    call("POST", "/auth/register", null, credentials, 400);
+    credentials.put("passwordConfirmation", "Password123!");
+    var account = call("POST", "/auth/register", null, credentials, 201);
+    long id = account.path("user").path("id").asLong();
+    assertEquals(login, account.path("user").path("login").asText());
+    credentials.put("email", "duplicate-" + email);
+    credentials.put("login", login.toUpperCase(Locale.ROOT));
+    call("POST", "/auth/register", null, credentials, 409);
+    var byLogin = call("POST", "/auth/login", null,
+      Map.of("login", login.toUpperCase(Locale.ROOT), "password", "Password123!"), 200);
+    assertEquals(id, byLogin.path("user").path("id").asLong());
+    var byEmail = call("POST", "/auth/login", null,
+      Map.of("email", email, "password", "Password123!"), 200);
+    assertEquals(id, byEmail.path("user").path("id").asLong());
+    assertFalse(call("GET", "/profiles/me", byEmail.path("accessToken").asText(), null, 200).has("login"));
+  }
+
   @Autowired
   MockMvc mvc;
 

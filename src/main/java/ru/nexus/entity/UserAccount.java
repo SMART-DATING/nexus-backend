@@ -13,6 +13,10 @@ public class UserAccount {
   @Column(nullable = false, unique = true)
   public String email;
 
+  // Nullable so existing accounts keep signing in with their email.
+  @Column(length = 32, unique = true)
+  public String login;
+
   @Column(nullable = false)
   public String passwordHash;
 

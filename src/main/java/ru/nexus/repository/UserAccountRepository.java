@@ -7,6 +7,7 @@ public interface UserAccountRepository
     org.springframework.data.jpa.repository.JpaRepository<UserAccount, Long>
 {
   java.util.Optional<UserAccount> findByEmail(String email);
+  java.util.Optional<UserAccount> findByLogin(String login);
   @org.springframework.data.jpa.repository.Modifying
   @org.springframework.data.jpa.repository.Query("update UserAccount u set u.lastActiveAt=:now where u.id=:id and (u.lastActiveAt is null or u.lastActiveAt < :threshold)")
   int touchActivity(Long id, java.time.Instant now, java.time.Instant threshold);
