@@ -39,6 +39,46 @@ class ApiIntegrationTest {
   ru.nexus.repository.PrivateContextRepository privateContexts;
 
   @Test
+  void chatControlsArePrivatePersistedAndDoNotDestroyPartnerHistory() throws Exception {
+    var a = register("chat-control-a");
+    var b = register("chat-control-b");
+    var outsider = register("chat-control-outsider");
+    fill(a, "A"); fill(b, "B");
+    call("POST", "/users/" + b.id + "/like", a.token, null, 200);
+    long mid = call("POST", "/users/" + a.id + "/like", b.token, null, 200).path("matchId").asLong();
+    var old = java.time.Instant.now().minusSeconds(7200);
+    var account = userRepository.findById(b.id).orElseThrow();
+    account.lastActiveAt = old; userRepository.saveAndFlush(account);
+    assertEquals(old.toEpochMilli(), java.time.Instant.parse(call("GET", "/matches/" + mid, a.token, null, 200).path("lastActiveAt").asText()).toEpochMilli());
+    call("PATCH", "/matches/" + mid + "/settings", outsider.token, Map.of("action", "clear"), 403);
+    call("PATCH", "/matches/" + mid + "/settings", a.token, Map.of("action", "invalid"), 400);
+    call("PATCH", "/matches/" + mid + "/settings", null, Map.of("action", "pin"), 401);
+    assertTrue(call("PATCH", "/matches/" + mid + "/settings", a.token, Map.of("action", "pin"), 200).path("pinned").asBoolean());
+    assertFalse(call("GET", "/matches/" + mid, b.token, null, 200).path("pinned").asBoolean());
+    assertTrue(call("GET", "/matches/" + mid, a.token, null, 200).path("pinned").asBoolean());
+    var marked = call("PATCH", "/matches/" + mid + "/settings", a.token, Map.of("action", "unread"), 200);
+    assertEquals(1, marked.path("unreadCount").asInt());
+    assertEquals(0, call("PATCH", "/matches/" + mid + "/read", a.token, Map.of("throughId", 0), 200).path("unreadCount").asInt());
+    call("POST", "/matches/" + mid + "/messages", b.token, Map.of("text", "Старая история"), 201);
+    var cleared = call("PATCH", "/matches/" + mid + "/settings", a.token, Map.of("action", "clear"), 200);
+    assertTrue(cleared.path("clearedThroughId").asLong() > 0);
+    assertEquals(0, cleared.path("unreadCount").asInt());
+    assertEquals(0, call("GET", "/matches/" + mid + "/messages", a.token, null, 200).path("items").size());
+    assertEquals(1, call("GET", "/matches/" + mid + "/messages", b.token, null, 200).path("items").size());
+    call("POST", "/matches/" + mid + "/messages", b.token, Map.of("text", "Новая история"), 201);
+    var history = call("GET", "/matches/" + mid + "/messages", a.token, null, 200).path("items");
+    assertEquals(1, history.size()); assertEquals("Новая история", history.get(0).path("text").asText());
+    call("PATCH", "/matches/" + mid + "/settings", a.token, Map.of("action", "delete"), 200);
+    assertFalse(call("GET", "/matches", a.token, null, 200).path("items").findValues("id").stream().anyMatch(x -> x.asLong() == mid));
+    assertTrue(call("GET", "/matches", b.token, null, 200).path("items").findValues("id").stream().anyMatch(x -> x.asLong() == mid));
+    call("POST", "/matches/" + mid + "/messages", b.token, Map.of("text", "Вернуть чат"), 201);
+    assertTrue(call("GET", "/matches", a.token, null, 200).path("items").findValues("id").stream().anyMatch(x -> x.asLong() == mid));
+    assertFalse(call("GET", "/matches/" + mid, a.token, null, 200).path("pinned").asBoolean());
+    assertNotNull(userRepository.findById(b.id).orElseThrow().lastActiveAt);
+    assertTrue(userRepository.findById(b.id).orElseThrow().lastActiveAt.isAfter(old));
+  }
+
+  @Test
   void recommendationsExhaustEachSimilarityBandBeforeDescendingAndRestartOnlyAtEnd() throws Exception {
     var a = register("tiers-a");
     var high = register("tiers-high");
@@ -284,7 +324,9 @@ class ApiIntegrationTest {
       403
     );
     call("PATCH", path + "/read", null, Map.of("throughId", second), 401);
-    call("PATCH", path + "/read", b.token, Map.of("throughId", 0), 400);
+    // Zero clears a manual reminder without acknowledging undelivered messages.
+    assertEquals(2, call("PATCH", path + "/read", b.token, Map.of("throughId", 0), 200).path("unreadCount").asInt());
+    call("PATCH", path + "/read", b.token, Map.of("throughId", -1), 400);
     call("PATCH", path + "/read", b.token, Map.of(), 400);
     call("PATCH", path + "/read", a.token, Map.of("throughId", second), 200);
     assertEquals(

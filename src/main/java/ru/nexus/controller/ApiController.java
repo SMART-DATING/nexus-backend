@@ -338,6 +338,15 @@ public class ApiController {
     return Map.of("items", s.history(s.identify(h), id, after));
   }
 
+  @PatchMapping("/matches/{id}/settings")
+  public Object chatAction(
+    @RequestHeader(value = "Authorization", required = false) String h,
+    @PathVariable Long id,
+    @Valid @RequestBody ChatAction request
+  ) {
+    return s.chatAction(s.identify(h), id, request.action());
+  }
+
   @PostMapping("/matches/{id}/messages")
   @ResponseStatus(HttpStatus.CREATED)
   public Object send(

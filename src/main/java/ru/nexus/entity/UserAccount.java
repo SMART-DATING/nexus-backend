@@ -29,4 +29,5 @@ public class UserAccount {
 
   // Null preserves discoverability for databases created before this setting existed.
   public Boolean discoveryHidden = false;
+  public java.time.Instant lastActiveAt;
 }

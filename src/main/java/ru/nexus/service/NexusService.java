@@ -29,6 +29,8 @@ public class NexusService {
   private final GalleryService gallery;
   private final ContextService contexts;
   private final BlockService blocks;
+  private final ChatPreferenceRepository chatPreferences;
+  private final PresenceService presence;
 
   public NexusService(
     UserAccountRepository u,
@@ -44,7 +46,9 @@ public class NexusService {
     PreferenceRepository preferenceStore,
     GalleryService gallery,
     ContextService contexts,
-    BlockService blocks
+    BlockService blocks,
+    ChatPreferenceRepository chatPreferences,
+    PresenceService presence
   ) {
     this.catalogue = catalogue;
     this.selections = selections;
@@ -52,6 +56,8 @@ public class NexusService {
     this.gallery = gallery;
     this.contexts = contexts;
     this.blocks = blocks;
+    this.chatPreferences = chatPreferences;
+    this.presence = presence;
     users = u;
     properties = p;
     reactions = r;
@@ -93,6 +99,7 @@ public class NexusService {
         "Неверный email или пароль"
       );
     }
+    u.lastActiveAt = Instant.now();
     byte[] bytes = new byte[32];
     new java.security.SecureRandom().nextBytes(bytes);
     String token = Base64.getUrlEncoder()
@@ -132,11 +139,13 @@ public class NexusService {
       401,
       "Войдите в аккаунт"
     );
-    return sessions
+    Long id = sessions
       .findByTokenHash(hash(header.substring(7)))
       .filter(s -> s.expiresAt.isAfter(Instant.now()))
       .map(s -> s.userId)
       .orElseThrow(() -> fail(401, "Сессия истекла. Войдите снова"));
+    presence.touch(id);
+    return id;
   }
 
   public void logout(String header) {
@@ -519,16 +528,51 @@ public class NexusService {
 
   public Map<String, Object> match(Long id, Long mid) {
     PairMatch m = accessible(id, mid);
-    return Map.of(
+    ChatPreference prefs = chatPreference(id, mid);
+    Long partnerId = id.equals(m.firstId) ? m.secondId : m.firstId;
+    var result = new LinkedHashMap<String, Object>(Map.of(
       "id",
       m.id,
       "user",
-      profileFor(id.equals(m.firstId) ? m.secondId : m.firstId, id),
+      profileFor(partnerId, id),
       "createdAt",
       m.createdAt,
       "unreadCount",
-      messages.unreadCount(mid, id)
-    );
+      unreadCount(mid, id, prefs),
+      "pinned", prefs.pinned,
+      "markedUnread", prefs.markedUnread,
+      "clearedThroughId", prefs.clearedThroughId
+    ));
+    result.put("lastActiveAt", user(partnerId).lastActiveAt);
+    return result;
+  }
+
+  private ChatPreference chatPreference(Long id, Long mid) {
+    return chatPreferences.findByUserIdAndMatchId(id, mid).orElseGet(() -> {
+      var p = new ChatPreference(); p.userId = id; p.matchId = mid; return p;
+    });
+  }
+
+  private long unreadCount(Long mid, Long id, ChatPreference prefs) {
+    return Math.max(prefs.markedUnread ? 1 : 0, messages.unreadCount(mid, id, prefs.clearedThroughId));
+  }
+
+  public Map<String, Object> chatAction(Long id, Long mid, String action) {
+    var pair = accessible(id, mid);
+    blocks.lockPair(pair.firstId, pair.secondId);
+    accessible(id, mid);
+    var p = chatPreference(id, mid);
+    switch (action) {
+      case "pin" -> { p.pinned = true; p.hidden = false; }
+      case "unpin" -> p.pinned = false;
+      case "unread" -> p.markedUnread = true;
+      case "read" -> { p.markedUnread = false; messages.readThrough(mid, id, messages.latestId(mid)); }
+      case "clear" -> { p.clearedThroughId = messages.latestId(mid); p.markedUnread = false; }
+      case "delete" -> { p.hidden = true; p.pinned = false; p.markedUnread = false; }
+      default -> throw fail(400, "Неизвестное действие");
+    }
+    chatPreferences.saveAndFlush(p);
+    return match(id, mid);
   }
 
   public List<Map<String, Object>> matchList(Long id) {
@@ -536,7 +580,10 @@ public class NexusService {
       .findByFirstIdOrSecondIdOrderByIdDesc(id, id)
       .stream()
       .filter(m -> !blocks.blocked(m.firstId, m.secondId))
+      .filter(m -> !chatPreference(id, m.id).hidden)
       .map(m -> match(id, m.id))
+      .sorted(Comparator.<Map<String, Object>, Boolean>comparing(m -> (Boolean) m.get("pinned")).reversed()
+        .thenComparing(m -> (Long) m.get("id"), Comparator.reverseOrder()))
       .toList();
   }
 
@@ -544,15 +591,19 @@ public class NexusService {
     accessible(id, mid);
     return messages.findByMatchIdAndIdGreaterThanOrderByIdAsc(
       mid,
-      after,
+      Math.max(after, chatPreference(id, mid).clearedThroughId),
       org.springframework.data.domain.PageRequest.of(0, 100)
     );
   }
 
   public Map<String, Long> readMessages(Long id, Long mid, Long throughId) {
+    var pair = accessible(id, mid);
+    blocks.lockPair(pair.firstId, pair.secondId);
     accessible(id, mid);
     messages.readThrough(mid, id, throughId);
-    return Map.of("unreadCount", messages.unreadCount(mid, id));
+    var p = chatPreference(id, mid);
+    if (p.markedUnread) { p.markedUnread = false; chatPreferences.save(p); }
+    return Map.of("unreadCount", unreadCount(mid, id, p));
   }
 
   public ChatMessage send(Long id, Long mid, String text) {
@@ -564,6 +615,10 @@ public class NexusService {
     c.senderId = id;
     c.text = text.trim();
     messages.save(c);
+    for (Long participant : List.of(m.firstId, m.secondId)) {
+      var pref = chatPreference(participant, mid);
+      if (pref.hidden) { pref.hidden = false; chatPreferences.save(pref); }
+    }
     notify(
       id.equals(m.firstId) ? m.secondId : m.firstId,
       mid,
@@ -575,7 +630,7 @@ public class NexusService {
   public List<Notice> notifications(Long id) {
     Set<Long> hiddenMatches = new HashSet<>();
     matches.findByFirstIdOrSecondIdOrderByIdDesc(id, id).stream()
-      .filter(m -> blocks.blocked(m.firstId, m.secondId)).forEach(m -> hiddenMatches.add(m.id));
+      .filter(m -> blocks.blocked(m.firstId, m.secondId) || chatPreference(id, m.id).hidden).forEach(m -> hiddenMatches.add(m.id));
     return notices.findTop100ByUserIdOrderByIdDesc(id).stream()
       .filter(n -> !hiddenMatches.contains(n.matchId)).toList();
   }

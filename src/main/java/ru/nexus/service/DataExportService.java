@@ -17,6 +17,7 @@ public class DataExportService {
   private final ReactionRepository reactions;
   private final ChatMessageRepository messages;
   private final BlockService blocks;
+  private final ChatPreferenceRepository chatPreferences;
 
   public DataExportService(
     NexusService nexus,
@@ -24,7 +25,8 @@ public class DataExportService {
     ProfilePhotoRepository photos,
     ReactionRepository reactions,
     ChatMessageRepository messages,
-    BlockService blocks
+    BlockService blocks,
+    ChatPreferenceRepository chatPreferences
   ) {
     this.nexus = nexus;
     this.contexts = contexts;
@@ -32,6 +34,7 @@ public class DataExportService {
     this.reactions = reactions;
     this.messages = messages;
     this.blocks = blocks;
+    this.chatPreferences = chatPreferences;
   }
 
   public Map<String, Object> export(Long id) {
@@ -97,7 +100,9 @@ public class DataExportService {
         )
         .toList(),
       "blockedUsers",
-      blocks.mine(id)
+      blocks.mine(id),
+      "chatPreferences",
+      chatPreferences.findByUserId(id).stream().map(p -> Map.of("matchId", p.matchId, "pinned", p.pinned, "hidden", p.hidden, "markedUnread", p.markedUnread, "clearedThroughId", p.clearedThroughId)).toList()
     );
   }
 }
