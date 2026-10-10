@@ -131,14 +131,14 @@ class ApiIntegrationTest {
   }
 
   @Test
-  void recommendationsExhaustEachSimilarityBandBeforeDescendingAndRestartOnlyAtEnd() throws Exception {
+  void recommendationsIncludeAllScoresInDescendingOrderAndRestartOnlyAtEnd() throws Exception {
     var a = register("tiers-a");
     var high = register("tiers-high");
     var high2 = register("tiers-high2");
     var middle = register("tiers-middle");
     var low = register("tiers-low");
     var accounts = List.of(a, high, high2, middle, low);
-    double[] scores = {1, .98, .92, .76, .34};
+    double[] scores = {1, .98, .92, .76, 0};
     for (int i = 0; i < accounts.size(); i++) {
       var account = accounts.get(i);
       fill(account, "Tier " + i);
@@ -151,6 +151,12 @@ class ApiIntegrationTest {
       privateContexts.saveAndFlush(context);
     }
     call("PUT", "/preferences/me", a.token, Map.of("minAge", 87, "maxAge", 87), 200);
+    var all = call("GET", "/recommendations?limit=50", a.token, null, 200).path("items");
+    assertEquals(4, all.size());
+    for (int i = 0; i < all.size(); i++) {
+      assertEquals(accounts.get(i + 1).id, all.get(i).path("userId").asLong());
+      assertEquals(scores[i + 1], all.get(i).path("compatibilityScore").asDouble(), 1e-8);
+    }
     var first = call("GET", "/recommendations?limit=1", a.token, null, 200).path("items");
     assertEquals(high.id, first.get(0).path("userId").asLong());
     assertEquals(90, first.get(0).path("similarityFloor").asInt());
@@ -170,14 +176,14 @@ class ApiIntegrationTest {
     call("POST", "/users/" + middle.id + "/skip", a.token, null, 200);
     var last = call("GET", "/recommendations", a.token, null, 200).path("items");
     assertEquals(low.id, last.get(0).path("userId").asLong());
-    assertEquals(30, last.get(0).path("similarityFloor").asInt());
+    assertEquals(0, last.get(0).path("similarityFloor").asInt());
     assertEquals(1, last.get(0).path("remainingCount").asInt());
     call("POST", "/users/" + low.id + "/skip", a.token, null, 200);
     assertEquals(0, call("GET", "/recommendations", a.token, null, 200).path("items").size());
     var cycle = call("POST", "/recommendations/next", a.token, null, 200);
     assertTrue(cycle.path("cycleRestarted").asBoolean());
     assertEquals(0, cycle.path("skippedCount").asInt());
-    assertEquals(1, cycle.path("items").size());
+    assertEquals(3, cycle.path("items").size());
     assertEquals(high.id, cycle.path("items").get(0).path("userId").asLong());
     assertEquals(3, cycle.path("items").get(0).path("remainingCount").asInt());
   }

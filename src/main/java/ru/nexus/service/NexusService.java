@@ -384,16 +384,15 @@ public class NexusService {
     }
     ranked.sort(Comparator.comparingDouble(Candidate::score).reversed().thenComparing(Candidate::id));
     if (ranked.isEmpty()) return List.of();
-    int floor = similarityFloor(ranked.getFirst().score());
-    // Issue gallery tickets only for the current band and requested page.
+    // All eligible candidates share one descending queue, including zero similarity.
+    // Issue gallery tickets only for the requested page.
     return ranked.stream()
-      .filter(candidate -> similarityFloor(candidate.score()) == floor)
       .limit(Math.max(1, Math.min(limit, 50)))
       .map(candidate -> {
         var p = profileFor(candidate.id(), id);
         p.put("commonInterests", candidate.common());
         p.put("compatibilityScore", candidate.score());
-        p.put("similarityFloor", floor);
+        p.put("similarityFloor", similarityFloor(candidate.score()));
         p.put("remainingCount", ranked.size() - ranked.indexOf(candidate));
         p.put("matchingBasis", "semantic");
         return p;
