@@ -66,7 +66,7 @@ class LegacyMigrationTest {
     catalogue.run();
     assertEquals(1, selected.findByUserId(id).size());
     assertEquals(
-      Map.of("minAge", 25, "maxAge", 35),
+      Map.of("minAge", 25, "maxAge", 35, "interestedIn", "all"),
       service.me(id).get("preferences")
     );
     assertTrue(users.findByEmail("legacy@example.com").isPresent());
