@@ -30,7 +30,9 @@ public class Requests {
 
   public record Message(@NotBlank @Size(max = 5000) String text) {}
 
-  public record ReadMessages(@NotNull @Positive Long throughId) {}
+  public record ReadMessages(@NotNull @PositiveOrZero Long throughId) {}
+
+  public record ChatAction(@NotBlank @Pattern(regexp = "pin|unpin|unread|read|clear|delete") String action) {}
 
   public record Context(
     @NotBlank @Size(max = 60) String title,

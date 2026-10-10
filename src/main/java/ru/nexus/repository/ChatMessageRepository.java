@@ -7,9 +7,12 @@ public interface ChatMessageRepository
     org.springframework.data.jpa.repository.JpaRepository<ChatMessage, Long>
 {
   @org.springframework.data.jpa.repository.Query(
-    "select count(m) from ChatMessage m where m.matchId = :matchId and m.senderId <> :viewerId and (m.readByRecipient = false or m.readByRecipient is null)"
+    "select count(m) from ChatMessage m where m.matchId = :matchId and m.senderId <> :viewerId and m.id > :after and (m.readByRecipient = false or m.readByRecipient is null)"
   )
-  long unreadCount(Long matchId, Long viewerId);
+  long unreadCount(Long matchId, Long viewerId, Long after);
+
+  @org.springframework.data.jpa.repository.Query("select coalesce(max(m.id), 0) from ChatMessage m where m.matchId=:matchId")
+  long latestId(Long matchId);
 
   @org.springframework.data.jpa.repository.Modifying
   @org.springframework.data.jpa.repository.Query(
