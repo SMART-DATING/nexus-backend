@@ -326,7 +326,8 @@ public class NexusService {
       .stream()
       .filter(r -> r.liked || !includeSkipped)
       .forEach(r -> excluded.add(r.targetId));
-    List<Map<String, Object>> result = new ArrayList<>();
+    record Candidate(Long id, double score, Set<String> common) {}
+    List<Candidate> ranked = new ArrayList<>();
     for (UserAccount u : users.findAll()) {
       if (
         excluded.contains(u.id) ||
@@ -349,28 +350,27 @@ public class NexusService {
       Set<String> theirs = interestNames(u.id);
       Set<String> common = new TreeSet<>(ownInterests);
       common.retainAll(theirs);
-      Set<String> union = new HashSet<>(ownInterests);
-      union.addAll(theirs);
-      var p = profileFor(u.id, id);
-      p.put("commonInterests", common);
-      p.put(
-        "compatibilityScore",
-        SemanticEncoder.cosine(ownVector, contexts.vector(u.id))
-      );
-      p.put("matchingBasis", "semantic");
-      result.add(p);
+      ranked.add(new Candidate(u.id, SemanticEncoder.cosine(ownVector, contexts.vector(u.id)), common));
     }
-    result.sort(
-      Comparator.<Map<String, Object>, Double>comparing(
-        p -> (Double) p.get("compatibilityScore")
-      )
-        .reversed()
-        .thenComparing(p -> (Long) p.get("userId"))
-    );
-    return result
-      .stream()
+    ranked.sort(Comparator.comparingDouble(Candidate::score).reversed().thenComparing(Candidate::id));
+    if (ranked.isEmpty()) return List.of();
+    int floor = similarityFloor(ranked.getFirst().score());
+    // Issue gallery tickets only for the current band and requested page.
+    return ranked.stream()
+      .filter(candidate -> similarityFloor(candidate.score()) == floor)
       .limit(Math.max(1, Math.min(limit, 50)))
-      .toList();
+      .map(candidate -> {
+        var p = profileFor(candidate.id(), id);
+        p.put("commonInterests", candidate.common());
+        p.put("compatibilityScore", candidate.score());
+        p.put("similarityFloor", floor);
+        p.put("matchingBasis", "semantic");
+        return p;
+      }).toList();
+  }
+
+  private static int similarityFloor(double score) {
+    return Math.min(9, (int) Math.floor(Math.max(0, score) * 10)) * 10;
   }
 
   public Map<String, Object> react(Long actor, Long target, boolean like) {

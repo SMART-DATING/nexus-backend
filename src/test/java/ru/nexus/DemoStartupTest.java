@@ -87,12 +87,11 @@ class DemoStartupTest {
     catalogue.run();
     assertEquals(14, users.count());
     assertEquals(Interests.ALL.size(), interests.count());
-    assertEquals(
-      13,
-      service
-        .recommend(users.findByEmail("demo@nexus.local").orElseThrow().id, 20)
-        .size()
-    );
+    var band = service.recommend(users.findByEmail("demo@nexus.local").orElseThrow().id, 20);
+    assertFalse(band.isEmpty());
+    assertTrue(band.size() <= 13);
+    assertEquals(1, band.stream().map(p -> p.get("similarityFloor")).distinct().count());
+
 
     var alex = users.findByEmail("demo@nexus.local").orElseThrow();
     service.saveProfile(
