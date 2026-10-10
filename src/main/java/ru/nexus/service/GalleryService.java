@@ -17,6 +17,7 @@ public class GalleryService {
   private final ProfilePhotoRepository photos;
   private final UserAccountRepository users;
   private final PairMatchRepository matches;
+  private final BlockService blocks;
 
   private record Grant(
     Long viewer,
@@ -31,15 +32,18 @@ public class GalleryService {
   public GalleryService(
     ProfilePhotoRepository photos,
     UserAccountRepository users,
-    PairMatchRepository matches
+    PairMatchRepository matches,
+    BlockService blocks
   ) {
     this.photos = photos;
     this.users = users;
     this.matches = matches;
+    this.blocks = blocks;
   }
 
   public boolean canView(Long target, Long viewer) {
     if (target.equals(viewer)) return true;
+    if (blocks.blocked(target, viewer)) return false;
     var user = users
       .findById(target)
       .orElseThrow(() -> NexusService.fail(404, "Анкета недоступна"));

@@ -92,6 +92,68 @@ class ApiIntegrationTest {
 
   record Account(long id, String token) {}
 
+  @Test
+  void blockingRevokesChatProfilePhotosAndFeedInBothDirectionsAndCanBeReversed() throws Exception {
+    var a = register("block-a"); var b = register("block-b"); var stranger = register("block-outsider");
+    fill(a, "Block A"); fill(b, "Block B");
+    addPhoto(a, 200); addPhoto(b, 200);
+    var before = call("GET", "/profiles/" + b.id, a.token, null, 200);
+    String oldPhoto = before.path("photos").get(0).path("url").asText();
+    call("POST", "/users/" + b.id + "/like", a.token, null, 200);
+    long mid = call("POST", "/users/" + a.id + "/like", b.token, null, 200).path("matchId").asLong();
+    String chat = "/matches/" + mid;
+    call("POST", chat + "/messages", b.token, Map.of("text", "Сохранённая история"), 201);
+    call("POST", "/users/" + a.id + "/block", a.token, null, 400);
+    call("POST", "/users/" + b.id + "/block", null, null, 401);
+    call("POST", "/users/" + b.id + "/block", a.token, null, 200);
+    call("POST", "/users/" + b.id + "/block", a.token, null, 200);
+    assertEquals(1, call("GET", "/users/me/blocks", a.token, null, 200).path("items").size());
+    assertEquals(0, call("GET", "/users/me/blocks", stranger.token, null, 200).path("items").size());
+    for (var account : List.of(a, b)) {
+      assertFalse(call("GET", "/matches", account.token, null, 200).path("items").toString().contains("\"id\":" + mid));
+      call("GET", chat, account.token, null, 404);
+      call("GET", chat + "/messages", account.token, null, 404);
+      call("PATCH", chat + "/read", account.token, Map.of("throughId", 999), 404);
+      call("POST", chat + "/messages", account.token, Map.of("text", "Нельзя отправить"), 404);
+      long other = account.id == a.id ? b.id : a.id;
+      call("GET", "/profiles/" + other, account.token, null, 404);
+      call("POST", "/users/" + other + "/skip", account.token, null, 404);
+      assertFalse(call("POST", "/recommendations/next", account.token, null, 200).path("items").toString().contains("\"userId\":" + other));
+      assertEquals(0, call("GET", "/notifications", account.token, null, 200).path("items").size());
+    }
+    mvc.perform(get(oldPhoto)).andExpect(status().isForbidden());
+    assertEquals(1, call("GET", "/users/me/data", a.token, null, 200).path("blockedUsers").size());
+    call("DELETE", "/users/" + a.id + "/block", b.token, null, 200);
+    call("GET", chat, b.token, null, 404); // Only the owner can remove their own block.
+    call("POST", "/users/" + a.id + "/block", b.token, null, 200);
+    call("DELETE", "/users/" + b.id + "/block", a.token, null, 200);
+    call("GET", chat, a.token, null, 404); // Reciprocal block still applies.
+    call("DELETE", "/users/" + a.id + "/block", b.token, null, 200);
+    call("GET", chat, a.token, null, 200);
+    assertEquals("Сохранённая история", call("GET", chat + "/messages", a.token, null, 200).path("items").get(0).path("text").asText());
+    call("GET", "/profiles/" + b.id, a.token, null, 200);
+    call("POST", chat + "/messages", a.token, Map.of("text", "Снова доступно"), 201);
+  }
+
+  @Test
+  void blockedUnmatchedProfilesStayOutOfEveryRecommendationCycle() throws Exception {
+    var a = register("blocked-feed-a"); var b = register("blocked-feed-b");
+    fill(a, "Feed A"); fill(b, "Feed B");
+    for (var account : List.of(a, b)) {
+      call("PUT", "/profiles/me", account.token, profile("Feed", java.time.LocalDate.now().minusYears(89).toString()), 200);
+      call("PUT", "/preferences/me", account.token, Map.of("minAge", 89, "maxAge", 89), 200);
+    }
+    assertEquals(b.id, call("GET", "/recommendations", a.token, null, 200).path("items").get(0).path("userId").asLong());
+    call("POST", "/users/" + b.id + "/block", a.token, null, 200);
+    for (var account : List.of(a, b)) for (int i = 0; i < 3; i++) {
+      long other = account.id == a.id ? b.id : a.id;
+      var items = call("POST", "/recommendations/next", account.token, null, 200).path("items");
+      for (var item : items) assertNotEquals(other, item.path("userId").asLong());
+    }
+    call("DELETE", "/users/" + b.id + "/block", a.token, null, 200);
+    assertEquals(b.id, call("GET", "/recommendations", a.token, null, 200).path("items").get(0).path("userId").asLong());
+  }
+
   Account register(String name) throws Exception {
     var r = call(
       "POST",

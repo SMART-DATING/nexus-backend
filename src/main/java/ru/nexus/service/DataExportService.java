@@ -16,19 +16,22 @@ public class DataExportService {
   private final ProfilePhotoRepository photos;
   private final ReactionRepository reactions;
   private final ChatMessageRepository messages;
+  private final BlockService blocks;
 
   public DataExportService(
     NexusService nexus,
     ContextService contexts,
     ProfilePhotoRepository photos,
     ReactionRepository reactions,
-    ChatMessageRepository messages
+    ChatMessageRepository messages,
+    BlockService blocks
   ) {
     this.nexus = nexus;
     this.contexts = contexts;
     this.photos = photos;
     this.reactions = reactions;
     this.messages = messages;
+    this.blocks = blocks;
   }
 
   public Map<String, Object> export(Long id) {
@@ -92,7 +95,9 @@ public class DataExportService {
         .map(m ->
           Map.of("matchId", m.matchId, "text", m.text, "createdAt", m.createdAt)
         )
-        .toList()
+        .toList(),
+      "blockedUsers",
+      blocks.mine(id)
     );
   }
 }
