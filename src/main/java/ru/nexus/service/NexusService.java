@@ -76,27 +76,39 @@ public class NexusService {
     if (
       c.password().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72
     ) throw fail(400, "Пароль должен занимать не более 72 байт UTF-8");
-    String email = c.email().trim().toLowerCase(Locale.ROOT);
+    String email = c.email() == null
+      ? ""
+      : c.email().trim().toLowerCase(Locale.ROOT);
+    String login = c.login() == null ? null : c.login().toLowerCase(Locale.ROOT);
     UserAccount u;
     if (register) {
+      if (email.isBlank()) throw fail(400, "Укажи email");
+      if (
+        (login != null || c.passwordConfirmation() != null) &&
+        !c.password().equals(c.passwordConfirmation())
+      ) throw fail(400, "Пароли должны совпадать");
+      if (login != null && users.findByLogin(login).isPresent()) throw fail(
+        409,
+        "Этот логин уже занят"
+      );
       if (users.findByEmail(email).isPresent()) throw fail(
         409,
         "Этот email уже зарегистрирован"
       );
       u = new UserAccount();
       u.email = email;
+      u.login = login;
       u.passwordHash = encoder.encode(c.password());
       users.saveAndFlush(u);
       Preference preference = new Preference();
       preference.user = u;
       preferenceStore.save(preference);
     } else {
-      u = users
-        .findByEmail(email)
-        .orElseThrow(() -> fail(401, "Неверный email или пароль"));
+      u = (login == null ? users.findByEmail(email) : users.findByLogin(login))
+        .orElseThrow(() -> fail(401, "Неверный логин, email или пароль"));
       if (!encoder.matches(c.password(), u.passwordHash)) throw fail(
         401,
-        "Неверный email или пароль"
+        "Неверный логин, email или пароль"
       );
     }
     u.lastActiveAt = Instant.now();
@@ -191,6 +203,8 @@ public class NexusService {
       id,
       "email",
       u.email,
+      "login",
+      u.login == null ? "" : u.login,
       "discoveryHidden",
       Boolean.TRUE.equals(u.discoveryHidden),
       "profile",

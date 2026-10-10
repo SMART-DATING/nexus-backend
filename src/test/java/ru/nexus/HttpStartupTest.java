@@ -28,6 +28,26 @@ class HttpStartupTest {
   int port;
 
   @Test
+  void loginAndConfirmationWorkOverHttpAndEmailRemainsUsable() throws Exception {
+    try (var client = HttpClient.newHttpClient()) {
+      assertEquals(400, auth(client, "register", "{\"email\":\"confirm@test.local\",\"login\":\"nexus_friend\",\"password\":\"Password123!\",\"passwordConfirmation\":\"Password456!\"}").statusCode());
+      assertEquals(400, auth(client, "register", "{\"email\":\"confirm@test.local\",\"login\":\"nexus_friend\",\"password\":\"Password123!\"}").statusCode());
+      assertEquals(400, auth(client, "register", "{\"email\":\"confirm@test.local\",\"login\":\"invalid login\",\"password\":\"Password123!\",\"passwordConfirmation\":\"Password123!\"}").statusCode());
+      assertEquals(201, auth(client, "register", "{\"email\":\"confirm@test.local\",\"login\":\"Nexus_Friend\",\"password\":\"Password123!\",\"passwordConfirmation\":\"Password123!\"}").statusCode());
+      assertEquals(409, auth(client, "register", "{\"email\":\"duplicate@test.local\",\"login\":\"nexus_friend\",\"password\":\"Password123!\",\"passwordConfirmation\":\"Password123!\"}").statusCode());
+      assertEquals(200, auth(client, "login", "{\"login\":\"NEXUS_FRIEND\",\"password\":\"Password123!\"}").statusCode());
+      assertEquals(200, auth(client, "login", "{\"email\":\"confirm@test.local\",\"password\":\"Password123!\"}").statusCode());
+      assertEquals(401, auth(client, "login", "{\"login\":\"nexus_friend\",\"password\":\"WrongPassword!\"}").statusCode());
+      assertEquals(401, auth(client, "login", "{\"password\":\"Password123!\"}").statusCode());
+    }
+  }
+
+  private HttpResponse<String> auth(HttpClient client, String action, String body) throws Exception {
+    return client.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/v1/auth/" + action))
+      .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+  }
+
+  @Test
   void realHttpServerStartsWithoutAutomaticallySeedingIllustratedUsers() throws Exception {
     try (
       var client = HttpClient.newBuilder()

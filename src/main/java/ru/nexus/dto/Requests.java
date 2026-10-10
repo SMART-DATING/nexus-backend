@@ -6,9 +6,15 @@ import java.util.*;
 public class Requests {
 
   public record Credentials(
-    @NotBlank @Email @Size(max = 254) String email,
-    @NotBlank @Size(min = 8, max = 72) String password
-  ) {}
+    @Email @Size(max = 254) String email,
+    @NotBlank @Size(min = 8, max = 72) String password,
+    @Pattern(regexp = "[\\p{L}\\p{N}_.-]{3,32}") String login,
+    @Size(min = 8, max = 72) String passwordConfirmation
+  ) {
+    public Credentials(String email, String password) {
+      this(email, password, null, null);
+    }
+  }
 
   public record Property(
     @NotBlank @Pattern(regexp = "display_name|bio|birth_date|city") String name,
