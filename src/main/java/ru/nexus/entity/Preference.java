@@ -19,4 +19,7 @@ public class Preference {
 
   @Column(nullable = false)
   public int maxAge = 60;
+
+  @Column(length = 16)
+  public String interestedIn;
 }

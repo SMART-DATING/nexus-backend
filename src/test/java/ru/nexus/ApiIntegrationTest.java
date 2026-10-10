@@ -39,6 +39,58 @@ class ApiIntegrationTest {
   ru.nexus.repository.PrivateContextRepository privateContexts;
 
   @Test
+  void genderPreferencesFilterBothWaysAndPreserveLegacyAccounts() throws Exception {
+    var owner = register("gender-owner");
+    var woman = register("gender-woman");
+    var man = register("gender-man");
+    var unknown = register("gender-unknown");
+    var other = register("gender-other");
+    var accounts = List.of(owner, woman, man, unknown, other);
+    var genders = List.of("male", "female", "male", "unspecified", "other");
+    for (int i = 0; i < accounts.size(); i++) {
+      var account = accounts.get(i);
+      fill(account, "Gender " + i);
+      var data = new HashMap<>(profile("Gender " + i, java.time.LocalDate.now().minusYears(91).toString()));
+      data.put("gender", genders.get(i));
+      call("PUT", "/profiles/me", account.token, data, 200);
+      var context = privateContexts.findByUserIdOrderByIdAsc(account.id).getFirst();
+      double[] vector = new double[312]; vector[0] = 1;
+      context.embedding = json.writeValueAsString(vector);
+      privateContexts.saveAndFlush(context);
+    }
+    call("PUT", "/preferences/me", owner.token, Map.of("minAge", 91, "maxAge", 91, "interestedIn", "female"), 200);
+    var items = call("GET", "/recommendations", owner.token, null, 200).path("items");
+    assertEquals(1, items.size());
+    assertEquals(woman.id, items.get(0).path("userId").asLong());
+    assertEquals(1, items.get(0).path("remainingCount").asInt());
+    assertFalse(items.get(0).has("gender")); // Matching fields stay private.
+    call("PUT", "/preferences/me", woman.token, Map.of("minAge", 18, "maxAge", 100, "interestedIn", "female"), 200);
+    assertEquals(0, call("POST", "/recommendations/next", owner.token, null, 200).path("items").size());
+    call("PUT", "/preferences/me", woman.token, Map.of("minAge", 18, "maxAge", 100, "interestedIn", "male"), 200);
+    call("POST", "/users/" + woman.id + "/skip", owner.token, null, 200);
+    var next = call("POST", "/recommendations/next", owner.token, null, 200);
+    assertTrue(next.path("cycleRestarted").asBoolean());
+    assertEquals(woman.id, next.path("items").get(0).path("userId").asLong());
+    // Old clients omit the new fields; an ordinary profile/topic edit must not erase them.
+    call("PUT", "/profiles/me", owner.token, profile("Owner", java.time.LocalDate.now().minusYears(91).toString()), 200);
+    call("PUT", "/preferences/me", owner.token, Map.of("minAge", 91, "maxAge", 91), 200);
+    var me = call("GET", "/users/me", owner.token, null, 200);
+    assertEquals("male", me.path("profile").path("gender").asText());
+    assertEquals("female", me.path("preferences").path("interestedIn").asText());
+    var invalid = new HashMap<>(profile("Owner", "2001-04-12")); invalid.put("gender", "guess");
+    call("PUT", "/profiles/me", owner.token, invalid, 400);
+    call("PUT", "/preferences/me", owner.token, Map.of("minAge", 18, "maxAge", 60, "interestedIn", "guess"), 400);
+    call("PUT", "/preferences/me", owner.token, Map.of("minAge", 91, "maxAge", 91, "interestedIn", "all"), 200);
+    assertEquals(4, call("GET", "/recommendations", owner.token, null, 200).path("items").size());
+    call("PUT", "/preferences/me", owner.token, Map.of("minAge", 91, "maxAge", 91, "interestedIn", "other"), 200);
+    assertEquals(other.id, call("GET", "/recommendations", owner.token, null, 200).path("items").get(0).path("userId").asLong());
+    var legacy = register("gender-legacy");
+    var legacyMe = call("GET", "/users/me", legacy.token, null, 200);
+    assertEquals("unspecified", legacyMe.path("profile").path("gender").asText());
+    assertEquals("all", legacyMe.path("preferences").path("interestedIn").asText());
+  }
+
+  @Test
   void chatControlsArePrivatePersistedAndDoNotDestroyPartnerHistory() throws Exception {
     var a = register("chat-control-a");
     var b = register("chat-control-b");

@@ -196,7 +196,7 @@ public class NexusService {
       "profile",
       profile(id, true),
       "preferences",
-      Map.of("minAge", pref.minAge, "maxAge", pref.maxAge)
+      preferenceView(pref)
     );
   }
 
@@ -215,6 +215,7 @@ public class NexusService {
     var visible = (List<Map<String, Object>>) out.get("photos");
     if (!visible.isEmpty()) out.put("avatarUrl", visible.get(0).get("url"));
     if (own) {
+      out.put("gender", u.gender == null ? "unspecified" : u.gender);
       out.put("contextCount", contexts.count(id));
       out.put("contextCharacterCount", contexts.characterCount(id));
     }
@@ -276,6 +277,7 @@ public class NexusService {
       properties.save(row);
     }
     UserAccount u = user(id);
+    if (input.gender() != null) u.gender = input.gender();
     var existing = selections.findByUserId(id);
     selections.deleteAll(
       existing
@@ -296,7 +298,17 @@ public class NexusService {
     return profile(id, true);
   }
 
-  public Map<String, Integer> preferences(Long id, Preferences p) {
+  private Map<String, Object> preferenceView(Preference pref) {
+    return Map.of("minAge", pref.minAge, "maxAge", pref.maxAge,
+      "interestedIn", pref.interestedIn == null ? "all" : pref.interestedIn);
+  }
+
+  private boolean accepts(Preference pref, UserAccount candidate) {
+    return pref.interestedIn == null || pref.interestedIn.equals("all") ||
+      pref.interestedIn.equals(candidate.gender);
+  }
+
+  public Map<String, Object> preferences(Long id, Preferences p) {
     if (p.minAge() > p.maxAge()) throw fail(
       400,
       "Минимальный возраст больше максимального"
@@ -305,8 +317,9 @@ public class NexusService {
     Preference pref = preferenceFor(u);
     pref.minAge = p.minAge();
     pref.maxAge = p.maxAge();
+    if (p.interestedIn() != null) pref.interestedIn = p.interestedIn();
     preferenceStore.save(pref);
-    return Map.of("minAge", pref.minAge, "maxAge", pref.maxAge);
+    return preferenceView(pref);
   }
 
   public boolean profileComplete(Long id) {
@@ -351,6 +364,7 @@ public class NexusService {
         !profileComplete(u.id) ||
         !contexts.hasContext(u.id)
       ) continue;
+      if (!accepts(pref, u) || !accepts(preferenceFor(u), me)) continue;
       String birth = properties
         .findByUserId(u.id)
         .stream()

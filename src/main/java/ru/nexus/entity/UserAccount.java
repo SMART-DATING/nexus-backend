@@ -30,4 +30,7 @@ public class UserAccount {
   // Null preserves discoverability for databases created before this setting existed.
   public Boolean discoveryHidden = false;
   public java.time.Instant lastActiveAt;
+  // Nullable for existing accounts; gender is entered by its owner, never inferred.
+  @Column(length = 16)
+  public String gender;
 }

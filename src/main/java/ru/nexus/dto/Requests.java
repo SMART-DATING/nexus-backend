@@ -20,12 +20,18 @@ public class Requests {
     @NotNull
     @Size(min = 4, max = 4)
     List<@jakarta.validation.Valid Property> properties,
-    @NotNull @Size(max = 10) Set<String> interests
-  ) {}
+    @NotNull @Size(max = 10) Set<String> interests,
+    @Pattern(regexp = "male|female|other|unspecified") String gender
+  ) {
+    public Profile(List<Property> properties, Set<String> interests) {
+      this(properties, interests, null);
+    }
+  }
 
   public record Preferences(
     @Min(18) @Max(100) int minAge,
-    @Min(18) @Max(100) int maxAge
+    @Min(18) @Max(100) int maxAge,
+    @Pattern(regexp = "all|male|female|other") String interestedIn
   ) {}
 
   public record Message(@NotBlank @Size(max = 5000) String text) {}
