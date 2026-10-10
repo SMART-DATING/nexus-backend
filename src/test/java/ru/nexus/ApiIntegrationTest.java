@@ -62,20 +62,24 @@ class ApiIntegrationTest {
     var first = call("GET", "/recommendations?limit=1", a.token, null, 200).path("items");
     assertEquals(high.id, first.get(0).path("userId").asLong());
     assertEquals(90, first.get(0).path("similarityFloor").asInt());
+    assertEquals(4, first.get(0).path("remainingCount").asInt());
     call("POST", "/users/" + high.id + "/skip", a.token, null, 200);
     var remaining = call("POST", "/recommendations/next", a.token, null, 200);
     assertEquals(high2.id, remaining.path("items").get(0).path("userId").asLong());
     assertFalse(remaining.path("cycleRestarted").asBoolean());
+    assertEquals(3, remaining.path("items").get(0).path("remainingCount").asInt());
     call("POST", "/users/" + high2.id + "/like", a.token, null, 200);
     var next = call("POST", "/recommendations/next", a.token, null, 200);
     assertEquals(middle.id, next.path("items").get(0).path("userId").asLong());
     assertEquals(70, next.path("items").get(0).path("similarityFloor").asInt());
+    assertEquals(2, next.path("items").get(0).path("remainingCount").asInt());
     assertFalse(next.path("cycleRestarted").asBoolean());
     assertEquals(1, next.path("skippedCount").asInt());
     call("POST", "/users/" + middle.id + "/skip", a.token, null, 200);
     var last = call("GET", "/recommendations", a.token, null, 200).path("items");
     assertEquals(low.id, last.get(0).path("userId").asLong());
     assertEquals(30, last.get(0).path("similarityFloor").asInt());
+    assertEquals(1, last.get(0).path("remainingCount").asInt());
     call("POST", "/users/" + low.id + "/skip", a.token, null, 200);
     assertEquals(0, call("GET", "/recommendations", a.token, null, 200).path("items").size());
     var cycle = call("POST", "/recommendations/next", a.token, null, 200);
@@ -83,6 +87,7 @@ class ApiIntegrationTest {
     assertEquals(0, cycle.path("skippedCount").asInt());
     assertEquals(1, cycle.path("items").size());
     assertEquals(high.id, cycle.path("items").get(0).path("userId").asLong());
+    assertEquals(3, cycle.path("items").get(0).path("remainingCount").asInt());
   }
 
   record Account(long id, String token) {}
@@ -776,6 +781,9 @@ class ApiIntegrationTest {
       "items"
     );
     assertEquals(b.id, first.get(0).path("userId").asLong());
+    assertEquals(books.length(), call("GET", "/profiles/me", a.token, null, 200).path("contextCharacterCount").asInt());
+    assertFalse(call("GET", "/profiles/" + a.id, b.token, null, 200).has("contextCharacterCount"));
+    assertFalse(first.get(0).has("contextCharacterCount"));
     assertFalse(first.toString().contains("content"));
     assertFalse(first.toString().contains("embedding"));
     assertFalse(
