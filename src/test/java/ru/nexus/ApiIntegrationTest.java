@@ -35,6 +35,56 @@ class ApiIntegrationTest {
   @Autowired
   ObjectMapper json;
 
+  @Autowired
+  ru.nexus.repository.PrivateContextRepository privateContexts;
+
+  @Test
+  void recommendationsExhaustEachSimilarityBandBeforeDescendingAndRestartOnlyAtEnd() throws Exception {
+    var a = register("tiers-a");
+    var high = register("tiers-high");
+    var high2 = register("tiers-high2");
+    var middle = register("tiers-middle");
+    var low = register("tiers-low");
+    var accounts = List.of(a, high, high2, middle, low);
+    double[] scores = {1, .98, .92, .76, .34};
+    for (int i = 0; i < accounts.size(); i++) {
+      var account = accounts.get(i);
+      fill(account, "Tier " + i);
+      call("PUT", "/profiles/me", account.token, profile("Tier " + i, java.time.LocalDate.now().minusYears(87).toString()), 200);
+      var context = privateContexts.findByUserIdOrderByIdAsc(account.id).getFirst();
+      // Fixed encoder outputs isolate queue policy from model quality.
+      double[] vector = new double[312];
+      vector[0] = scores[i]; vector[1] = Math.sqrt(1 - scores[i] * scores[i]);
+      context.embedding = json.writeValueAsString(vector);
+      privateContexts.saveAndFlush(context);
+    }
+    call("PUT", "/preferences/me", a.token, Map.of("minAge", 87, "maxAge", 87), 200);
+    var first = call("GET", "/recommendations?limit=1", a.token, null, 200).path("items");
+    assertEquals(high.id, first.get(0).path("userId").asLong());
+    assertEquals(90, first.get(0).path("similarityFloor").asInt());
+    call("POST", "/users/" + high.id + "/skip", a.token, null, 200);
+    var remaining = call("POST", "/recommendations/next", a.token, null, 200);
+    assertEquals(high2.id, remaining.path("items").get(0).path("userId").asLong());
+    assertFalse(remaining.path("cycleRestarted").asBoolean());
+    call("POST", "/users/" + high2.id + "/like", a.token, null, 200);
+    var next = call("POST", "/recommendations/next", a.token, null, 200);
+    assertEquals(middle.id, next.path("items").get(0).path("userId").asLong());
+    assertEquals(70, next.path("items").get(0).path("similarityFloor").asInt());
+    assertFalse(next.path("cycleRestarted").asBoolean());
+    assertEquals(1, next.path("skippedCount").asInt());
+    call("POST", "/users/" + middle.id + "/skip", a.token, null, 200);
+    var last = call("GET", "/recommendations", a.token, null, 200).path("items");
+    assertEquals(low.id, last.get(0).path("userId").asLong());
+    assertEquals(30, last.get(0).path("similarityFloor").asInt());
+    call("POST", "/users/" + low.id + "/skip", a.token, null, 200);
+    assertEquals(0, call("GET", "/recommendations", a.token, null, 200).path("items").size());
+    var cycle = call("POST", "/recommendations/next", a.token, null, 200);
+    assertTrue(cycle.path("cycleRestarted").asBoolean());
+    assertEquals(0, cycle.path("skippedCount").asInt());
+    assertEquals(1, cycle.path("items").size());
+    assertEquals(high.id, cycle.path("items").get(0).path("userId").asLong());
+  }
+
   record Account(long id, String token) {}
 
   Account register(String name) throws Exception {
