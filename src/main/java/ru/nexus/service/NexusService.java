@@ -202,7 +202,10 @@ public class NexusService {
     out.putAll(gallery.view(id, viewer));
     var visible = (List<Map<String, Object>>) out.get("photos");
     if (!visible.isEmpty()) out.put("avatarUrl", visible.get(0).get("url"));
-    if (own) out.put("contextCount", contexts.count(id));
+    if (own) {
+      out.put("contextCount", contexts.count(id));
+      out.put("contextCharacterCount", contexts.characterCount(id));
+    }
     out.put("interests", interestNames(id));
     out.put(
       "properties",
@@ -364,6 +367,7 @@ public class NexusService {
         p.put("commonInterests", candidate.common());
         p.put("compatibilityScore", candidate.score());
         p.put("similarityFloor", floor);
+        p.put("remainingCount", ranked.size() - ranked.indexOf(candidate));
         p.put("matchingBasis", "semantic");
         return p;
       }).toList();

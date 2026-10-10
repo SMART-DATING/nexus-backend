@@ -120,6 +120,11 @@ public class ContextService {
     return (int) contexts.countByUserId(userId);
   }
 
+  public int characterCount(Long userId) {
+    return contexts.findByUserIdOrderByIdAsc(userId).stream()
+      .mapToInt(c -> c.content.strip().length()).sum();
+  }
+
   public double[] vector(Long userId) {
     double[] mean = null;
     for (var c : contexts.findByUserIdOrderByIdAsc(userId)) {
