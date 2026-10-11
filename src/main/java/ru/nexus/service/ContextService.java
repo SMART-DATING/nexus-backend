@@ -126,8 +126,18 @@ public class ContextService {
   }
 
   public double[] vector(Long userId) {
+    return vector(contexts.findByUserIdOrderByIdAsc(userId));
+  }
+
+  public Map<Long, List<PrivateContext>> groupedContexts() {
+    Map<Long, List<PrivateContext>> grouped = new HashMap<>();
+    for (var c : contexts.findAllByOrderByIdAsc()) grouped.computeIfAbsent(c.userId, ignored -> new ArrayList<>()).add(c);
+    return grouped;
+  }
+
+  public double[] vector(List<PrivateContext> rows) {
     double[] mean = null;
-    for (var c : contexts.findByUserIdOrderByIdAsc(userId)) {
+    for (var c : rows) {
       double[] v;
       try {
         if (!SemanticEncoder.VERSION.equals(c.modelVersion)) {

@@ -17,6 +17,9 @@ import org.springframework.test.web.servlet.*;
   properties = {
     "spring.datasource.url=jdbc:h2:mem:test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1",
     "nexus.demo=false",
+    "spring.jpa.properties.hibernate.generate_statistics=true",
+    "logging.level.org.hibernate.stat=OFF",
+    "logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=OFF",
   }
 )
 @AutoConfigureMockMvc
@@ -28,6 +31,52 @@ import org.springframework.test.web.servlet.*;
   inheritListeners = false
 )
 class ApiIntegrationTest {
+
+  @Autowired jakarta.persistence.EntityManagerFactory entityManagerFactory;
+  @Autowired ru.nexus.repository.ProfilePhotoRepository photoRepository;
+
+  @Test
+  void recommendationPageUsesBoundedQueriesWithoutLoadingPhotoBlobs() throws Exception {
+    var owner = register("bounded-owner");
+    var accounts = new ArrayList<Account>();
+    accounts.add(owner);
+    for (int i = 0; i < 20; i++) accounts.add(register("bounded-" + i));
+    for (var account : accounts) {
+      call("PUT", "/profiles/me", account.token,
+        profile("Bounded", java.time.LocalDate.now().minusYears(86).toString()), 200);
+      var context = new ru.nexus.entity.PrivateContext();
+      context.userId = account.id; context.title = "Private";
+      context.content = "A private story that must not appear in recommendations.";
+      context.embedding = "[1.0,0.0]";
+      context.modelVersion = ru.nexus.service.SemanticEncoder.VERSION;
+      context.updatedAt = java.time.Instant.now();
+      privateContexts.saveAndFlush(context);
+      var user = userRepository.findById(account.id).orElseThrow();
+      user.galleryMigrated = true; userRepository.saveAndFlush(user);
+      for (int position = 0; position < 4; position++) {
+        var photo = new ru.nexus.entity.ProfilePhoto();
+        photo.userId = account.id; photo.position = position;
+        photo.image = new byte[64 * 1024]; photo.version = UUID.randomUUID().toString();
+        photoRepository.saveAndFlush(photo);
+      }
+    }
+    call("PUT", "/preferences/me", owner.token, Map.of("minAge",86,"maxAge",86,"interestedIn","all"), 200);
+    var stats = entityManagerFactory.unwrap(org.hibernate.SessionFactory.class).getStatistics();
+    stats.clear();
+    var page = call("GET", "/recommendations?limit=50", owner.token, null, 200).path("items");
+    assertEquals(20, page.size());
+    assertEquals(0, stats.getEntityStatistics(ru.nexus.entity.ProfilePhoto.class.getName()).getLoadCount(),
+      "Ranking and gallery tickets must not load image blobs");
+    assertTrue(stats.getPrepareStatementCount() <= 20,
+      "Queries must stay bounded for a full page: " + stats.getPrepareStatementCount());
+    for (var item : page) {
+      assertEquals(4, item.path("photos").size());
+      assertEquals(4, item.path("photoCount").asInt());
+      assertEquals(1.0, item.path("compatibilityScore").asDouble());
+      assertFalse(item.toString().contains("Private biography"));
+      assertFalse(item.toString().contains("A private story"));
+    }
+  }
 
   @Test
   void uniqueLoginConfirmationAndLegacyEmailLogin() throws Exception {
@@ -214,6 +263,72 @@ class ApiIntegrationTest {
   }
 
   record Account(long id, String token) {}
+
+  @Autowired ru.nexus.repository.ProfilePropertyRepository profileProperties;
+
+  @Test
+  void sameCityComesFirstWithoutChangingScoresOrDroppingOtherCities() throws Exception {
+    var owner = register("city-owner");
+    var foreignHigh = register("city-foreign-high");
+    var localLow = register("city-local-low");
+    var foreignLow = register("city-foreign-low");
+    var localHigh = register("city-local-high");
+    var localTie = register("city-local-tie");
+    var localZero = register("city-local-zero");
+    var accounts = List.of(owner, foreignHigh, localLow, foreignLow, localHigh, localTie, localZero);
+    double[] scores = {1, .98, .25, .90, .75, .75, 0};
+    String[] cities = {"Москва", "Казань", "  МОСКВА  ", "Казань", "москва", "Москва", "Москва"};
+    for (int i = 0; i < accounts.size(); i++) {
+      var account = accounts.get(i);
+      fill(account, "City " + i);
+      call("PUT", "/profiles/me", account.token, cityProfile("City " + i, cities[i]), 200);
+      var context = privateContexts.findByUserIdOrderByIdAsc(account.id).getFirst();
+      double[] vector = new double[312];
+      vector[0] = scores[i]; vector[1] = Math.sqrt(1 - scores[i] * scores[i]);
+      context.embedding = json.writeValueAsString(vector);
+      privateContexts.saveAndFlush(context);
+    }
+    call("PUT", "/preferences/me", owner.token, Map.of("minAge", 85, "maxAge", 85), 200);
+    var expected = List.of(localHigh, localTie, localLow, localZero, foreignHigh, foreignLow);
+    var page = call("GET", "/recommendations?limit=50", owner.token, null, 200).path("items");
+    assertEquals(expected.size(), page.size());
+    for (int i = 0; i < page.size(); i++) {
+      var account = expected.get(i);
+      assertEquals(account.id, page.get(i).path("userId").asLong());
+      assertEquals(scores[accounts.indexOf(account)], page.get(i).path("compatibilityScore").asDouble(), 1e-8);
+      assertFalse(page.get(i).path("properties").toString().contains("city")); // Hidden city still stays hidden.
+    }
+    assertEquals(localHigh.id, call("GET", "/recommendations?limit=1", owner.token, null, 200).path("items").get(0).path("userId").asLong());
+    call("PUT", "/profiles/me", owner.token, cityProfile("Owner", "Казань"), 200);
+    var changed = call("GET", "/recommendations", owner.token, null, 200).path("items");
+    assertEquals(foreignHigh.id, changed.get(0).path("userId").asLong());
+    assertEquals(foreignLow.id, changed.get(1).path("userId").asLong());
+    var ownerCity = profileProperties.findByUserId(owner.id).stream().filter(p -> p.name.equals("city")).findFirst().orElseThrow();
+    ownerCity.value = "  "; // Legacy missing city must fall back to similarity alone.
+    profileProperties.saveAndFlush(ownerCity);
+    var noCity = call("GET", "/recommendations", owner.token, null, 200).path("items");
+    for (int i = 1; i < noCity.size(); i++) assertTrue(noCity.get(i - 1).path("compatibilityScore").asDouble() >= noCity.get(i).path("compatibilityScore").asDouble());
+    call("PUT", "/profiles/me", owner.token, cityProfile("Owner", "Москва"), 200);
+    for (var account : expected) {
+      assertEquals(account.id, call("POST", "/recommendations/next?limit=1", owner.token, null, 200).path("items").get(0).path("userId").asLong());
+      call("POST", "/users/" + account.id + "/" + (account == foreignHigh ? "like" : "skip"), owner.token, null, 200);
+    }
+    var cycle = call("POST", "/recommendations/next", owner.token, null, 200);
+    assertTrue(cycle.path("cycleRestarted").asBoolean());
+    assertEquals(localHigh.id, cycle.path("items").get(0).path("userId").asLong());
+    assertEquals(5, cycle.path("items").size());
+    assertFalse(cycle.path("items").toString().contains("\"userId\":" + foreignHigh.id + ","));
+  }
+
+  Map<String, Object> cityProfile(String name, String city) {
+    var data = new HashMap<>(profile(name, java.time.LocalDate.now().minusYears(85).toString()));
+    var fields = new ArrayList<Map<String, Object>>();
+    for (var field : (List<Map<String, Object>>) data.get("properties")) {
+      fields.add(field.get("name").equals("city") ? Map.of("name", "city", "value", city, "visible", false) : field);
+    }
+    data.put("properties", fields);
+    return data;
+  }
 
   @Test
   void blockingRevokesChatProfilePhotosAndFeedInBothDirectionsAndCanBeReversed() throws Exception {

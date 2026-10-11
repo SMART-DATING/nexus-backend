@@ -7,6 +7,7 @@ import ru.nexus.entity.PrivateContext;
 public interface PrivateContextRepository
   extends JpaRepository<PrivateContext, Long>
 {
+  List<PrivateContext> findAllByOrderByIdAsc();
   List<PrivateContext> findByUserIdOrderByIdAsc(Long userId);
   long countByUserId(Long userId);
   boolean existsByUserId(Long userId);

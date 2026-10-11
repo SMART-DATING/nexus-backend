@@ -45,6 +45,9 @@ public class SemanticEncoder {
       try (var options = new OrtSession.SessionOptions()) {
         options.setIntraOpNumThreads(2);
         options.setInterOpNumThreads(1);
+        // Local prototype requests are intermittent; let model workers sleep between runs.
+        options.addConfigEntry("session.intra_op.allow_spinning", "0");
+        options.addConfigEntry("session.inter_op.allow_spinning", "0");
         session = environment.createSession(
           directory.resolve("model.onnx").toString(),
           options

@@ -28,6 +28,7 @@ public class GalleryService {
 
   private final Map<String, Grant> grants = new ConcurrentHashMap<>();
   private final Map<String, String> current = new ConcurrentHashMap<>();
+  private final java.security.SecureRandom random = new java.security.SecureRandom();
 
   public GalleryService(
     ProfilePhotoRepository photos,
@@ -60,8 +61,8 @@ public class GalleryService {
   }
 
   public void migrate(Long userId) {
-    var existing = users.findById(userId).orElseThrow();
-    if (Boolean.TRUE.equals(existing.galleryMigrated)) return;
+    var existing = users.findGalleryStates(List.of(userId)).stream().findFirst().orElseThrow();
+    if (Boolean.TRUE.equals(existing.getGalleryMigrated())) return;
     var user = users.lockById(userId).orElseThrow();
     if (Boolean.TRUE.equals(user.galleryMigrated)) return;
     if (photos.countByUserId(userId) == 0) {
@@ -105,7 +106,7 @@ public class GalleryService {
     );
     migrate(target);
     if (viewer != null) migrate(viewer);
-    var all = photos.findByUserIdOrderByPositionAscIdAsc(target);
+    var all = photos.findMetadata(List.of(target));
     int allowance =
       viewer == null ? 0 : target.equals(viewer) ? 6 : count(viewer);
     var visible = all
@@ -114,11 +115,11 @@ public class GalleryService {
       .map(p ->
         Map.<String, Object>of(
           "id",
-          p.id,
+          p.getId(),
           "position",
-          p.position,
+          p.getPosition(),
           "url",
-          "/api/v1/photos/" + p.id + "?access=" + grant(viewer, p)
+          "/api/v1/photos/" + p.getId() + "?access=" + grant(viewer, p)
         )
       )
       .toList();
@@ -132,20 +133,39 @@ public class GalleryService {
     );
   }
 
-  private synchronized String grant(Long viewer, ProfilePhoto p) {
+  // Only call after the recommendation service has applied visibility and block filters.
+  public Map<Long, Map<String, Object>> eligibleViews(List<Long> targets, Long viewer) {
+    if (targets.isEmpty()) return Map.of();
+    migrate(viewer);
+    for (var state : users.findGalleryStates(targets)) if (!Boolean.TRUE.equals(state.getGalleryMigrated())) migrate(state.getId());
+    int allowance = (int) photos.countByUserId(viewer);
+    Map<Long, List<ProfilePhotoRepository.Metadata>> grouped = new HashMap<>();
+    for (var p : photos.findMetadata(targets)) grouped.computeIfAbsent(p.getUserId(), ignored -> new ArrayList<>()).add(p);
+    Map<Long, Map<String, Object>> result = new HashMap<>();
+    for (var id : targets) {
+      var all = grouped.getOrDefault(id, List.of());
+      var visible = all.stream().limit(allowance).map(p -> Map.<String, Object>of(
+        "id", p.getId(), "position", p.getPosition(), "url", "/api/v1/photos/"+p.getId()+"?access="+grant(viewer,p)
+      )).toList();
+      result.put(id, Map.of("photos", visible, "photoCount", all.size(), "photoAllowance", allowance));
+    }
+    return result;
+  }
+
+  private synchronized String grant(Long viewer, ProfilePhotoRepository.Metadata p) {
     var now = Instant.now();
     if (grants.size() > 10000) {
       grants.entrySet().removeIf(e -> e.getValue().expires().isBefore(now));
       current.entrySet().removeIf(e -> !grants.containsKey(e.getValue()));
     }
-    String key = viewer + ":" + p.id + ":" + p.version;
+    String key = viewer + ":" + p.getId() + ":" + p.getVersion();
     String token = current.get(key);
     var old = token == null ? null : grants.get(token);
     if (old != null && old.expires().isAfter(now.plusSeconds(30))) return token;
     byte[] random = new byte[32];
-    new java.security.SecureRandom().nextBytes(random);
+    this.random.nextBytes(random);
     token = Base64.getUrlEncoder().withoutPadding().encodeToString(random);
-    grants.put(token, new Grant(viewer, p.id, p.version, now.plusSeconds(900)));
+    grants.put(token, new Grant(viewer, p.getId(), p.getVersion(), now.plusSeconds(900)));
     current.put(key, token);
     return token;
   }
@@ -181,10 +201,10 @@ public class GalleryService {
     if (!p.userId.equals(g.viewer())) {
       int allowance = count(g.viewer());
       var allowed = photos
-        .findByUserIdOrderByPositionAscIdAsc(p.userId)
+        .findMetadata(List.of(p.userId))
         .stream()
         .limit(allowance)
-        .anyMatch(x -> x.id.equals(photoId));
+        .anyMatch(x -> x.getId().equals(photoId));
       if (!allowed) throw NexusService.fail(
         403,
         "Загрузите больше своих фото, чтобы увидеть это фото"
@@ -201,11 +221,11 @@ public class GalleryService {
   public Long firstId(Long userId) {
     migrate(userId);
     return photos
-      .findByUserIdOrderByPositionAscIdAsc(userId)
+      .findMetadata(List.of(userId))
       .stream()
       .findFirst()
       .orElseThrow(() -> NexusService.fail(404, "Фото пока нет"))
-      .id;
+      .getId();
   }
 
   public void add(Long userId, MultipartFile file) {

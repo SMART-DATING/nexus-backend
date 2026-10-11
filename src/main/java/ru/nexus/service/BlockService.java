@@ -20,6 +20,12 @@ public class BlockService {
     return a != null && b != null && (blocks.existsByActorIdAndTargetId(a, b) || blocks.existsByActorIdAndTargetId(b, a));
   }
 
+  public Set<Long> blockedUsers(Long id) {
+    var result = new HashSet<Long>();
+    for (var b : blocks.findInvolving(id)) result.add(b.actorId.equals(id) ? b.targetId : b.actorId);
+    return result;
+  }
+
   // Reactions, blocking and sending acquire the same two locks in this order.
   public void lockPair(Long actor, Long target) {
     users.lockById(Math.min(actor, target)).orElseThrow(() -> NexusService.fail(404, "Пользователь не найден"));

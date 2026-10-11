@@ -6,6 +6,19 @@ public interface UserAccountRepository
   extends
     org.springframework.data.jpa.repository.JpaRepository<UserAccount, Long>
 {
+  interface DiscoveryAccount {
+    Long getId();
+    String getGender();
+    Boolean getDiscoveryHidden();
+  }
+  interface GalleryState {
+    Long getId();
+    Boolean getGalleryMigrated();
+  }
+  @org.springframework.data.jpa.repository.Query("select u.id as id, u.gender as gender, u.discoveryHidden as discoveryHidden from UserAccount u")
+  java.util.List<DiscoveryAccount> findDiscoveryAccounts();
+  @org.springframework.data.jpa.repository.Query("select u.id as id, u.galleryMigrated as galleryMigrated from UserAccount u where u.id in :ids")
+  java.util.List<GalleryState> findGalleryStates(java.util.Collection<Long> ids);
   java.util.Optional<UserAccount> findByEmail(String email);
   java.util.Optional<UserAccount> findByLogin(String login);
   @org.springframework.data.jpa.repository.Modifying

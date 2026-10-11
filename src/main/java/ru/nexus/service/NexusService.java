@@ -351,9 +351,15 @@ public class NexusService {
   ) {
     UserAccount me = user(id);
     Preference pref = preferenceFor(me);
-    Set<String> ownInterests = interestNames(id);
-    double[] ownVector = contexts.vector(id);
-    if (!profileComplete(id)) throw fail(
+    Map<Long, List<ProfileProperty>> allProperties = new HashMap<>();
+    for (var row : properties.findAll()) allProperties.computeIfAbsent(row.userId, ignored -> new ArrayList<>()).add(row);
+    allProperties.values().forEach(rows -> rows.sort(Comparator.comparing(row -> row.name)));
+    Map<Long, Set<String>> allInterests = new HashMap<>();
+    for (var row : selections.findSelections()) allInterests.computeIfAbsent(row.getUserId(), ignored -> new TreeSet<>()).add(row.getName());
+    Set<String> ownInterests = allInterests.getOrDefault(id, Set.of());
+    var contextRows = contexts.groupedContexts();
+    double[] ownVector = contexts.vector(contextRows.getOrDefault(id, List.of()));
+    if (allProperties.getOrDefault(id, List.of()).size() != 4) throw fail(
       409,
       "Сначала заполните профиль и интересы"
     );
@@ -363,24 +369,31 @@ public class NexusService {
       "Добавьте личный рассказ о себе для смыслового подбора"
     );
     excluded.add(id);
+    excluded.addAll(blocks.blockedUsers(id));
     reactions
       .findByActorId(id)
       .stream()
       .filter(r -> r.liked || !includeSkipped)
       .forEach(r -> excluded.add(r.targetId));
-    record Candidate(Long id, double score, Set<String> common) {}
+    Map<Long, String> acceptedGender = new HashMap<>();
+    for (var row : preferenceStore.findDiscoveryPreferences()) acceptedGender.put(row.getUserId(), row.getInterestedIn());
+    String ownCity = discoveryCity(allProperties.getOrDefault(id, List.of()));
+    record Candidate(Long id, double score, Set<String> common, boolean sameCity) {}
     List<Candidate> ranked = new ArrayList<>();
-    for (UserAccount u : users.findAll()) {
+    for (var u : users.findDiscoveryAccounts()) {
+      Long candidateId = u.getId();
+      var candidateProperties = allProperties.getOrDefault(candidateId, List.of());
       if (
-        excluded.contains(u.id) ||
-        blocks.blocked(id, u.id) ||
-        Boolean.TRUE.equals(u.discoveryHidden) ||
-        !profileComplete(u.id) ||
-        !contexts.hasContext(u.id)
+        excluded.contains(candidateId) ||
+        Boolean.TRUE.equals(u.getDiscoveryHidden()) ||
+        candidateProperties.size() != 4 ||
+        !contextRows.containsKey(candidateId)
       ) continue;
-      if (!accepts(pref, u) || !accepts(preferenceFor(u), me)) continue;
-      String birth = properties
-        .findByUserId(u.id)
+      String desiredGender = acceptedGender.containsKey(candidateId)
+        ? acceptedGender.get(candidateId) : preferenceFor(user(candidateId)).interestedIn;
+      if ((pref.interestedIn != null && !pref.interestedIn.equals("all") && !pref.interestedIn.equals(u.getGender())) ||
+        (desiredGender != null && !desiredGender.equals("all") && !desiredGender.equals(me.gender))) continue;
+      String birth = candidateProperties
         .stream()
         .filter(p -> p.name.equals("birth_date"))
         .findFirst()
@@ -391,19 +404,29 @@ public class NexusService {
         LocalDate.now()
       ).getYears();
       if (age < pref.minAge || age > pref.maxAge) continue;
-      Set<String> theirs = interestNames(u.id);
+      Set<String> theirs = allInterests.getOrDefault(candidateId, Set.of());
       Set<String> common = new TreeSet<>(ownInterests);
       common.retainAll(theirs);
-      ranked.add(new Candidate(u.id, SemanticEncoder.cosine(ownVector, contexts.vector(u.id)), common));
+      ranked.add(new Candidate(candidateId, SemanticEncoder.cosine(ownVector, contexts.vector(contextRows.get(candidateId))), common,
+        !ownCity.isEmpty() && ownCity.equals(discoveryCity(candidateProperties))));
     }
-    ranked.sort(Comparator.comparingDouble(Candidate::score).reversed().thenComparing(Candidate::id));
+    ranked.sort(Comparator.comparing(Candidate::sameCity).reversed()
+      .thenComparing(Comparator.comparingDouble(Candidate::score).reversed()).thenComparing(Candidate::id));
     if (ranked.isEmpty()) return List.of();
-    // All eligible candidates share one descending queue, including zero similarity.
+    // Same-city profiles come first; each group includes all scores in descending order.
     // Issue gallery tickets only for the requested page.
-    return ranked.stream()
-      .limit(Math.max(1, Math.min(limit, 50)))
+    var page = ranked.stream().limit(Math.max(1, Math.min(limit, 50))).toList();
+    var galleries = gallery.eligibleViews(page.stream().map(Candidate::id).toList(), id);
+    return page.stream()
       .map(candidate -> {
-        var p = profileFor(candidate.id(), id);
+        Map<String, Object> p = new LinkedHashMap<>();
+        p.put("userId", candidate.id());
+        p.putAll(galleries.get(candidate.id()));
+        var visible = (List<Map<String, Object>>) p.get("photos");
+        if (!visible.isEmpty()) p.put("avatarUrl", visible.getFirst().get("url"));
+        p.put("interests", allInterests.getOrDefault(candidate.id(), Set.of()));
+        p.put("properties", allProperties.get(candidate.id()).stream().filter(row -> row.visible)
+          .map(row -> Map.of("name", row.name, "value", row.value, "visible", row.visible)).toList());
         p.put("commonInterests", candidate.common());
         p.put("compatibilityScore", candidate.score());
         p.put("similarityFloor", similarityFloor(candidate.score()));
@@ -411,6 +434,11 @@ public class NexusService {
         p.put("matchingBasis", "semantic");
         return p;
       }).toList();
+  }
+
+  private static String discoveryCity(List<ProfileProperty> rows) {
+    return rows.stream().filter(row -> row.name.equals("city")).map(row -> row.value == null ? "" : row.value)
+      .findFirst().orElse("").strip().replaceAll("[\\s\\p{Z}]+", " ").toLowerCase(Locale.ROOT).replace('ё', 'е');
   }
 
   private static int similarityFloor(double score) {
