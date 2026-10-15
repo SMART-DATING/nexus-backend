@@ -8,9 +8,9 @@ Java 21 · Spring Boot 3.5.16 · Spring Security · Spring Data JPA · PostgreSQ
 
 ## Быстрый запуск
 
-Нужны JDK 21 и сеть при первой загрузке Maven/модели. Команды выполняются из корня этого репозитория.
+Нужны JDK 21 и сеть при первой загрузке Maven/модели. На Windows команды используют PowerShell 7 (`pwsh`); на Linux нужны `curl` и `sha256sum`. Команды выполняются из корня этого репозитория.
 
-Windows PowerShell:
+Windows, PowerShell 7:
 
 ```powershell
 pwsh -File scripts/download-model.ps1
@@ -18,7 +18,7 @@ pwsh -File scripts/download-model.ps1
 java -jar target/nexus-backend-0.0.1-SNAPSHOT.jar --spring.profiles.active=local
 ```
 
-Linux/macOS:
+Linux:
 
 ```sh
 sh scripts/download-model.sh
@@ -47,7 +47,7 @@ docker compose up -d --build --wait
 | `NEXUS_MODEL_DIR` | Каталог model.onnx и vocab.txt; по умолчанию `./models/rubert-tiny2` |
 | `PORT`, `BIND_ADDRESS` | 8080 / 127.0.0.1 локально; Docker слушает 0.0.0.0 внутри контейнера |
 
-Пути по умолчанию зависят от рабочего каталога. Не открывайте один H2-файл одновременно backend и DBeaver. Обычный запуск не создаёт прежние рисованные анкеты, в том числе при NEXUS_DEMO=true. Используйте собственные тестовые аккаунты.
+Пути по умолчанию зависят от рабочего каталога. Не открывайте один H2-файл одновременно backend и DBeaver. Обычный запуск создаёт справочник интересов без готовых анкет. Для демонстрации зарегистрируйте тестовые аккаунты и заполните их через интерфейс.
 
 ## Основные правила
 
